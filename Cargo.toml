@@ -7,9 +7,6 @@ edition = "2021"
 futures = "0.3"
 tokio = {version = "0.2", features = ["full"] }
 
-async-fs = "1.6"
-
-
 
 [profile.release]
 strip = true

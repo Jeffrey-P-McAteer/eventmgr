@@ -38,7 +38,7 @@ async fn print_errors<'a, T, V: 'a>(results: T)
 
 async fn poll_downloads() -> AnyError<()> {
   
-  let mut entries = async_fs::read_dir("/j/downloads").await?;
+  let mut entries = tokio::fs::read_dir("/j/downloads").await?;
 
   while let Some(entry) = entries.try_next().await? {
       println!("dl> {}", entry.file_name().to_string_lossy());
