@@ -1,5 +1,5 @@
 use futures::prelude::*;
-use tokio::prelude::*;
+//use tokio::prelude::*;
 
 type AnyError<T> = Result<T, Box<dyn std::error::Error>>;
 
@@ -11,18 +11,21 @@ fn main() {
 }
 
 async fn eventmgr() {
+  println!("Beginning eventmgr event loop...");
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(2));
   
-  println!("Yay async loop!");
-  
-  let (r1, r2, r3) = tokio::join!(
-    poll_downloads(),
-    poll_downloads(),
-    poll_downloads(),
-  );
-  print_errors(&[r1, r2, r3]).await;
+  loop {
+    interval.tick().await; // Ticks every 2 seconds, or less time if we spent time doing tasks below.
 
-  println!("Goodbye async loop!");
+    let (r1, r2, r3) = tokio::join!(
+      poll_downloads(),
+      poll_downloads(),
+      poll_downloads(),
+    );
 
+    print_errors(&[r1, r2, r3]).await;
+
+  }
 }
 
 async fn print_errors<'a, T, V: 'a>(results: T)
