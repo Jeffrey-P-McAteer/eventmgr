@@ -1,8 +1,6 @@
 
 use futures::prelude::*;
 
-type AnyError<T> = Result<T, Box<dyn std::error::Error>>;
-
 pub const SERVER_SOCKET: &'static str = "/tmp/eventmgr.sock";
 
 macro_rules! dump_error {
@@ -38,11 +36,22 @@ macro_rules! dump_error_and_ret {
 fn main() {
   // Runtime spawns an i/o thread + others + manages task dispatch for us
   let args: Vec<String> = std::env::args().collect();
-  let mut rt = tokio::runtime::Runtime::new().unwrap();
+  //let mut rt = tokio::runtime::Runtime::new().unwrap();
   if args.len() > 1 {
+    let rt = tokio::runtime::Builder::new_current_thread()
+      .enable_time()
+      .build()
+      .expect("Could not build tokio runtime!");
+
     rt.block_on(event_client(&args));
   }
   else {
+    let rt = tokio::runtime::Builder::new_multi_thread()
+      .enable_all()
+      .worker_threads(2)
+      .build()
+      .expect("Could not build tokio runtime!");
+
     rt.block_on(eventmgr());
   }
 }
@@ -53,7 +62,7 @@ async fn event_client(args: &Vec<String>) {
     ciborium::ser::into_writer(&args, &mut msg_bytes)
   );
 
-  let (mut client_sock, _unused_sock) = tokio::net::UnixDatagram::pair().expect("Could not make socket pair!");
+  let (client_sock, _unused_sock) = tokio::net::UnixDatagram::pair().expect("Could not make socket pair!");
   dump_error_async!(
     client_sock.send_to(&msg_bytes, SERVER_SOCKET)
   ).await;
@@ -63,17 +72,22 @@ async fn event_client(args: &Vec<String>) {
 async fn eventmgr() {
   println!("Beginning eventmgr event loop...");
 
+  let mut handle_sway_msgs_fut = tokio::task::spawn(handle_sway_msgs());
   let mut handle_socket_msgs_fut = tokio::task::spawn(handle_socket_msgs());
   let mut poll_downloads_fut = tokio::task::spawn(poll_downloads());
   let mut mount_disks_fut = tokio::task::spawn(mount_disks());
 
-  // We check for failed tasks and re-start them every 4 seconds
+  // We check for failed tasks and re-start them every 6 seconds
   let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(6));
   
   loop {
     interval.tick().await;
     
-    // Re-start any jobs that failed (future returned error or something)
+    if handle_sway_msgs_fut.is_finished() {
+      println!("Re-starting handle_sway_msgs");
+      handle_sway_msgs_fut = tokio::task::spawn(handle_sway_msgs());
+    }
+
     if handle_socket_msgs_fut.is_finished() {
       println!("Re-starting handle_socket_msgs");
       handle_socket_msgs_fut = tokio::task::spawn(handle_socket_msgs());
@@ -92,6 +106,46 @@ async fn eventmgr() {
   }
 }
 
+async fn handle_sway_msgs() {
+  // If we do not have I3SOCK or SWAYSOCK defined in env,
+  // We must look them up manually.
+  // See implementation from https://github.com/JayceFayne/swayipc-rs/blob/master/async/src/socket.rs
+  if ! (std::env::var("I3SOCK").is_ok() || std::env::var("SWAYSOCK").is_ok()) {
+    // Go fish
+    println!("Do not have I3SOCK or SWAYSOCK defined, searching for a socket under /run/user or /tmp...");
+    
+    let vars_dirs_and_search_fragments = &[
+      ("SWAYSOCK", "/run/user/1000", "sway-ipc"),
+      ("I3SOCK",   "/tmp",           "ipc-socket"),
+    ];
+
+    for (env_var_to_set, directory, search_fragment) in vars_dirs_and_search_fragments {
+      let mut entries = async_walkdir::WalkDir::new(directory);
+      while let Some(entry_result) = entries.next().await {
+        if let Ok(entry) = entry_result {
+          let name_s = entry.file_name().to_string_lossy().to_lowercase();
+          if name_s.contains(search_fragment) {
+            println!("Found {:?}", entry.path() );
+            std::env::set_var(env_var_to_set, entry.path().into_os_string() );
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  let subs = [
+      swayipc_async::EventType::Workspace,
+      swayipc_async::EventType::Window,
+  ];
+  let mut events = dump_error_and_ret!( dump_error_and_ret!(swayipc_async::Connection::new().await).subscribe(subs).await );
+  while let Some(event) = events.next().await {
+    if let Ok(event) = event {
+      println!("Sway event = {:?}", event);
+    }
+  }
+}
+
 async fn handle_socket_msgs() {
   if std::path::Path::new(SERVER_SOCKET).exists() {
     dump_error_and_ret!(
@@ -99,7 +153,7 @@ async fn handle_socket_msgs() {
     );
   }
 
-  let mut server = dump_error_and_ret!( tokio::net::UnixDatagram::bind(SERVER_SOCKET) );
+  let server = dump_error_and_ret!( tokio::net::UnixDatagram::bind(SERVER_SOCKET) );
   let mut msg_buf = vec![0u8; 4096];
   let mut msg_size: usize = 0;
 
@@ -167,6 +221,12 @@ async fn poll_downloads() {
 static MOUNT_DISKS: phf::Map<&'static str, (&'static str, &'static str) > = phf::phf_map! {
   "/dev/disk/by-partuuid/53da446a-2409-ca42-8337-12389dc70563" => 
     ("/mnt/scratch", "auto,rw,noatime,data=writeback,barrier=0,nobh,errors=remount-ro"),
+
+  "/dev/disk/by-partuuid/435cfadf-6a6e-4acf-a784-ab3f792ee8c6" => 
+    ("/mnt/wda", "auto,rw"),
+
+  "/dev/disk/by-partuuid/ee209a96-9170-534a-9ba2-ea0a34ac156e" => 
+    ("/mnt/wdb", "auto,rw"),
 
 };
 

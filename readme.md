@@ -7,8 +7,8 @@ Simple async event handler for common desktop i/o events.
 
 ```bash
 
-# Check immediately, skipping interval
-pgrep eventmgr ; pkill --signal USR1 eventmgr
+# Watch load for process
+htop -p $(pgrep eventmgr)
 
 ```
 
