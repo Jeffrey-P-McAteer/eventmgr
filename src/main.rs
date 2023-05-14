@@ -10,20 +10,26 @@ fn main() {
   rt.block_on(future);
 }
 
+
 async fn eventmgr() {
   println!("Beginning eventmgr event loop...");
   let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(2));
+  let mut sig_usr1_stream = tokio::signal::unix::signal( tokio::signal::unix::SignalKind::user_defined1() ).expect("Could not bind to SIGUSR1");
   
   loop {
-    interval.tick().await; // Ticks every 2 seconds, or less time if we spent time doing tasks below.
+    let _ = tokio::select!{
+      _ = interval.tick() => {},
+      _ = sig_usr1_stream.recv() => {},
+    };
 
-    let (r1, r2, r3) = tokio::join!(
-      poll_downloads(),
+    println!("Tick!");
+
+    let (r1, r2) = tokio::join!(
       poll_downloads(),
       poll_downloads(),
     );
 
-    print_errors(&[r1, r2, r3]).await;
+    print_errors(&[r1, r2]).await;
 
   }
 }
