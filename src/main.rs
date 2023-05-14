@@ -20,11 +20,14 @@ fn main() {
 async fn event_client(args: &Vec<String>) {
   println!("TODO process args={:?}", args);
   
-  let msg = format!("{:?}", args);
+  let mut msg_bytes = Vec::new();
+  print_errors(&[
+    ciborium::ser::into_writer(&args, &mut msg_bytes)
+  ]).await;
 
   let (mut client_sock, _unused_sock) = tokio::net::UnixDatagram::pair().expect("Could not make socket pair!");
   print_errors(&[
-    client_sock.send_to(msg.as_bytes(), server_socket).await
+    client_sock.send_to(&msg_bytes, server_socket).await
   ]).await;
 
 
@@ -58,9 +61,15 @@ async fn eventmgr() {
     if msg_size > 0 {
       // Handle message!
       let msg_bytes = &msg_buf[0..msg_size];
-
-      println!("Got message: {}", String::from_utf8_lossy(msg_bytes) );
-
+      match ciborium::de::from_reader::<ciborium::Value, &[u8]>(msg_bytes) {
+        Ok(msg_val) => {
+          println!("Got message: {:?}", &msg_val );
+        }
+        Err(e) => {
+          eprintln!("CBOR decoding error: {:?}", e);
+        }
+      }
+      // clear message buffer
       msg_size = 0;
     }
 
