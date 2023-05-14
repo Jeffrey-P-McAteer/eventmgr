@@ -119,7 +119,11 @@ async fn handle_sway_msgs() {
       ("I3SOCK",   "/tmp",           "ipc-socket"),
     ];
 
+    let mut found_one = false;
     for (env_var_to_set, directory, search_fragment) in vars_dirs_and_search_fragments {
+      if found_one {
+        break;
+      }
       let mut entries = async_walkdir::WalkDir::new(directory);
       while let Some(entry_result) = entries.next().await {
         if let Ok(entry) = entry_result {
@@ -127,6 +131,7 @@ async fn handle_sway_msgs() {
           if name_s.contains(search_fragment) {
             println!("Found {:?}", entry.path() );
             std::env::set_var(env_var_to_set, entry.path().into_os_string() );
+            found_one = true;
             break;
           }
         }
@@ -141,7 +146,27 @@ async fn handle_sway_msgs() {
   let mut events = dump_error_and_ret!( dump_error_and_ret!(swayipc_async::Connection::new().await).subscribe(subs).await );
   while let Some(event) = events.next().await {
     if let Ok(event) = event {
-      println!("Sway event = {:?}", event);
+      //println!("Sway event = {:?}", event);
+      match event {
+        swayipc_async::Event::Window(window_evt) => {
+          if window_evt.change == swayipc_async::WindowChange::Focus {
+            let name = window_evt.container.name.unwrap_or("".to_string());
+            println!("Window focused: {}", name);
+          }
+        }
+        swayipc_async::Event::Workspace(workspace_evt) => {
+          if workspace_evt.change == swayipc_async::WorkspaceChange::Focus {
+            if let Some(focused_ws) = workspace_evt.current {
+              let name = focused_ws.name.unwrap_or("".to_string());
+              println!("Workspace focused = {:?}", name );
+            }
+          }
+
+        }
+        unhandled_evt => {
+          println!("Unhandled sway event = {:?}", unhandled_evt);
+        }
+      }
     }
   }
 }
