@@ -3,26 +3,66 @@ use futures::prelude::*;
 
 type AnyError<T> = Result<T, Box<dyn std::error::Error>>;
 
+pub const server_socket: &'static str = "/tmp/eventmgr.sock";
+
 fn main() {
   // Runtime spawns an i/o thread + others + manages task dispatch for us
+  let args: Vec<String> = std::env::args().collect();
   let mut rt = tokio::runtime::Runtime::new().unwrap();
-  let future = eventmgr();
-  rt.block_on(future);
+  if args.len() > 1 {
+    rt.block_on(event_client(&args));
+  }
+  else {
+    rt.block_on(eventmgr());
+  }
+}
+
+async fn event_client(args: &Vec<String>) {
+  println!("TODO process args={:?}", args);
+  
+  let msg = format!("{:?}", args);
+
+  let (mut client_sock, _unused_sock) = tokio::net::UnixDatagram::pair().expect("Could not make socket pair!");
+  print_errors(&[
+    client_sock.send_to(msg.as_bytes(), server_socket).await
+  ]).await;
+
+
 }
 
 
 async fn eventmgr() {
   println!("Beginning eventmgr event loop...");
-  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(2));
-  let mut sig_usr1_stream = tokio::signal::unix::signal( tokio::signal::unix::SignalKind::user_defined1() ).expect("Could not bind to SIGUSR1");
-  
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(4));
+  if std::path::Path::new(server_socket).exists() {
+    print_errors(&[
+      std::fs::remove_file(server_socket)
+    ]).await;
+  }
+  let mut server = tokio::net::UnixDatagram::bind(server_socket).expect("Could not bind to server socket!");
+  let mut msg_buf = vec![0u8; 4096];
+  let mut msg_size: usize = 0;
+
   loop {
     let _ = tokio::select!{
       _ = interval.tick() => {},
-      _ = sig_usr1_stream.recv() => {},
+      res = server.recv_from(&mut msg_buf) => {
+        if let Ok((size, addr)) = res {
+          msg_size = size;
+        }
+      },
     };
 
     println!("Tick!");
+
+    if msg_size > 0 {
+      // Handle message!
+      let msg_bytes = &msg_buf[0..msg_size];
+
+      println!("Got message: {}", String::from_utf8_lossy(msg_bytes) );
+
+      msg_size = 0;
+    }
 
     let (r1, r2) = tokio::join!(
       poll_downloads(),
@@ -34,9 +74,10 @@ async fn eventmgr() {
   }
 }
 
-async fn print_errors<'a, T, V: 'a>(results: T)
+
+async fn print_errors<'a, T, V: 'a, E: 'a + std::fmt::Debug>(results: T)
   where
-    T: IntoIterator<Item = &'a AnyError<V> >,
+    T: IntoIterator<Item = &'a Result<V, E> >,
 {
   for result in results {
     if let Err(e) = result {
