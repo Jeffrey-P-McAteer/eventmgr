@@ -151,14 +151,14 @@ async fn handle_sway_msgs() {
         swayipc_async::Event::Window(window_evt) => {
           if window_evt.change == swayipc_async::WindowChange::Focus {
             let name = window_evt.container.name.unwrap_or("".to_string());
-            println!("Window focused: {}", name);
+            on_window_focus(&name).await;
           }
         }
         swayipc_async::Event::Workspace(workspace_evt) => {
           if workspace_evt.change == swayipc_async::WorkspaceChange::Focus {
             if let Some(focused_ws) = workspace_evt.current {
               let name = focused_ws.name.unwrap_or("".to_string());
-              println!("Workspace focused = {:?}", name );
+              on_workspace_focus(&name).await;
             }
           }
 
@@ -169,6 +169,14 @@ async fn handle_sway_msgs() {
       }
     }
   }
+}
+
+async fn on_window_focus(window_name: &str) {
+  println!("Window focused = {:?}", window_name );
+}
+
+async fn on_workspace_focus(workspace_name: &str) {
+  println!("Workspace focused = {:?}", workspace_name );
 }
 
 async fn handle_socket_msgs() {
@@ -206,7 +214,8 @@ async fn handle_socket_msgs() {
 }
 
 
-pub const DOWNLOAD_QUARANTINE_SECS: u64 = 36 * 60 * 60;
+pub const DOWNLOAD_QUARANTINE_SECS: u64 = (24 + 12) * 60 * 60;
+pub const QUARANTINE_DELETE_SECS: u64 = 3 * 24 * 60 * 60;
 
 async fn poll_downloads() {
   let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
@@ -218,7 +227,6 @@ async fn poll_downloads() {
     }
 
     let mut entries = dump_error_and_ret!( tokio::fs::read_dir("/j/downloads").await );
-
     while let Some(entry) = dump_error_and_ret!( entries.next_entry().await ) {
       if entry.file_name() == "q" || entry.file_name() == "s" {
         continue;
@@ -228,16 +236,41 @@ async fn poll_downloads() {
           if let Ok(duration) = time.elapsed() {
             let age_s = duration.as_secs();
             if age_s > DOWNLOAD_QUARANTINE_SECS {
-              println!("{} needs to be quarantined!", entry.file_name().to_string_lossy());
+              println!("Quarantining {:.2}-hour-old file {}", (age_s as f64 / (60.0 * 60.0) ), entry.file_name().to_string_lossy());
+              let dst_file = std::path::Path::new("/j/downloads/q").join( entry.file_name() );
+              dump_error_and_ret!( tokio::fs::rename(entry.path(), dst_file).await );
             }
           }
         }
       }
       
     }
+
+    // Now scan quarantined files and delete old ones
+    let mut entries = dump_error_and_ret!( tokio::fs::read_dir("/j/downloads/q").await );
+    while let Some(entry) = dump_error_and_ret!( entries.next_entry().await ) {
+      if let Ok(metadata) = entry.metadata().await {
+        if let Ok(time) = metadata.modified() {
+          if let Ok(duration) = time.elapsed() {
+            let age_s = duration.as_secs();
+            if age_s > QUARANTINE_DELETE_SECS {
+              if metadata.is_dir() {
+                println!("Deleting {:.2}-hour-old directory {}", (age_s as f64 / (60.0 * 60.0) ), entry.file_name().to_string_lossy());
+                dump_error_and_ret!( tokio::fs::remove_dir_all( entry.path() ).await );
+              }
+              else {
+                println!("Deleting {:.2}-hour-old file {}", (age_s as f64 / (60.0 * 60.0) ), entry.file_name().to_string_lossy());
+                dump_error_and_ret!( tokio::fs::remove_file( entry.path() ).await );
+              }
+            }
+          }
+        }
+      }
+      
+    }
+
   }
 }
-
 
 
 
