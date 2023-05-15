@@ -176,10 +176,22 @@ async fn handle_exit_signals() {
   loop {
     tokio::select!{
       _sig_int = int_stream.recv() => {
-        println!("Got sig_int!");
+        println!("Got SIGINT, shutting down!");
+
+        if let Ok(mut last_focus_task) = WINDOW_FOCUS_CPU_TASK.lock() {
+          let taken_task = last_focus_task.take();
+          std::mem::drop(taken_task);
+        }
+
+        // Allow spawned futures to complete...
+        tokio::time::sleep( tokio::time::Duration::from_millis(750) ).await;
+
+        println!("Goodbye!");
+
+        std::process::exit(0);
       }
       _sig_term = term_stream.recv() => {
-        println!("Got exit signal, shutting down!");
+        println!("Got SIGTERM, shutting down!");
 
         if let Ok(mut last_focus_task) = WINDOW_FOCUS_CPU_TASK.lock() {
           let taken_task = last_focus_task.take();
@@ -478,6 +490,69 @@ async fn mount_disks() {
     }
   }
 }
+
+
+
+async fn bump_cpu_for_performance_procs() {
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
+  loop {
+    interval.tick().await;
+
+  }
+}
+
+static PAUSED_PROC_PIDS: once_cell::sync::Lazy<std::sync::Mutex< Vec<usize> >> = once_cell::sync::Lazy::new(||
+  std::sync::Mutex::new( vec![] )
+);
+
+async fn pause_pid(pid: usize) {
+  if let Ok(mut proc_pids) = PAUSED_PROC_PIDS.lock() {
+    dump_error_and_ret!(
+      nix::sys::signal::kill(
+        nix::unistd::Pid::from_raw(pid as i32), nix::sys::signal::Signal::SIGSTOP
+      )
+    );
+    proc_pids.push(pid);
+  }
+}
+
+async fn partial_resume_paused_procs() {
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(2));
+  loop {
+    interval.tick().await;
+
+    if let Ok(mut proc_pids) = PAUSED_PROC_PIDS.lock() {
+      let mut pids_to_remove_from_list: Vec<usize> = vec![];
+      for proc_pid in proc_pids.iter() {
+        if let Err(_e) = procfs::process::Process::new(*proc_pid as i32) {
+          pids_to_remove_from_list.push( *proc_pid );
+          continue;
+        }
+        dump_error!(
+          nix::sys::signal::kill(
+            nix::unistd::Pid::from_raw(*proc_pid as i32), nix::sys::signal::Signal::SIGSTOP
+          )
+        );
+      }
+      // Finally drain vec of values in proc_pids
+      for pid_to_remove in pids_to_remove_from_list {
+        if let Some(pos) = proc_pids.iter().position(|x| *x == pid_to_remove) {
+          proc_pids.remove(pos);
+        }
+      }
+    }
+
+  }
+}
+
+
+
+
+
+
+
+
+
 
 async fn is_mounted(directory_path: &str) -> bool {
   if let Ok(info) = mountinfo::MountInfo::new() {

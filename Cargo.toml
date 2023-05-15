@@ -14,6 +14,10 @@ mountinfo = "0.2"
 swayipc-async = "2.0"
 async-walkdir = "0.2"
 procfs = "0.15"
+nix = "0.26"
+
+
+
 
 [profile.release]
 strip = true
