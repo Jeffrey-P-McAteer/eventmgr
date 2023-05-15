@@ -121,6 +121,7 @@ WantedBy=multi-user.target
 async fn eventmgr() {
   println!("Beginning eventmgr event loop...");
 
+  let mut handle_exit_signals_fut = tokio::task::spawn(handle_exit_signals());
   let mut handle_sway_msgs_fut = tokio::task::spawn(handle_sway_msgs());
   let mut handle_socket_msgs_fut = tokio::task::spawn(handle_socket_msgs());
   let mut poll_downloads_fut = tokio::task::spawn(poll_downloads());
@@ -131,6 +132,11 @@ async fn eventmgr() {
   
   loop {
     interval.tick().await;
+
+    if handle_exit_signals_fut.is_finished() {
+      println!("Re-starting handle_exit_signals");
+      handle_exit_signals_fut = tokio::task::spawn(handle_exit_signals());
+    }
     
     if handle_sway_msgs_fut.is_finished() {
       println!("Re-starting handle_sway_msgs");
@@ -154,6 +160,43 @@ async fn eventmgr() {
 
   }
 }
+
+
+async fn handle_exit_signals() {
+  let mut int_stream = dump_error_and_ret!(
+    tokio::signal::unix::signal(
+      tokio::signal::unix::SignalKind::interrupt()
+    )
+  );
+  let mut term_stream = dump_error_and_ret!(
+    tokio::signal::unix::signal(
+      tokio::signal::unix::SignalKind::terminate()
+    )
+  );
+  loop {
+    tokio::select!{
+      _sig_int = int_stream.recv() => {
+        println!("Got sig_int!");
+      }
+      _sig_term = term_stream.recv() => {
+        println!("Got exit signal, shutting down!");
+
+        if let Ok(mut last_focus_task) = WINDOW_FOCUS_CPU_TASK.lock() {
+          let taken_task = last_focus_task.take();
+          std::mem::drop(taken_task);
+        }
+
+        // Allow spawned futures to complete...
+        tokio::time::sleep( tokio::time::Duration::from_millis(750) ).await;
+
+        println!("Goodbye!");
+
+        std::process::exit(0);
+      }
+    };
+  }
+}
+
 
 async fn handle_sway_msgs() {
   // If we do not have I3SOCK or SWAYSOCK defined in env,
@@ -222,7 +265,7 @@ async fn handle_sway_msgs() {
 
 
 static WINDOW_FOCUS_CPU_TASK: once_cell::sync::Lazy<std::sync::Mutex< Option<UndoableTask> >> = once_cell::sync::Lazy::new(||
-  std::sync::Mutex::new( Some(UndoableTask::create(||{},||{})) )
+  std::sync::Mutex::new( None )
 );
 
 async fn on_window_focus(window_name: &str) {
@@ -230,10 +273,12 @@ async fn on_window_focus(window_name: &str) {
   
   // Always undo last task on focus change
   if let Ok(mut last_focus_task) = WINDOW_FOCUS_CPU_TASK.lock() {
-    let taken_task = last_focus_task.take(); // Puts None in there
+    /*let taken_task = last_focus_task.take(); // Puts None in there
     if let Some(mut task) = taken_task {
       task.undo_it();
-    }
+    }*/
+    // .undo_it() called in Drop, so guaranteed to run! \o/
+    let _taken_task = last_focus_task.take();
   }
 
   let lower_window = window_name.to_lowercase();
@@ -509,6 +554,10 @@ impl UndoableTask {
   }
 }
 
-
+impl Drop for UndoableTask {
+  fn drop(&mut self) {
+    self.undo_it(); // If process crashes, this ought to run
+  }
+}
 
 
