@@ -57,6 +57,55 @@ fn main() {
 }
 
 async fn event_client(args: &Vec<String>) {
+  if args.contains(&"install".to_string()) {
+    // Assume we are running as root + write directly to service file
+    let install_service_file = "/etc/systemd/system/eventmgr.service";
+    let install_service_str = format!(r#"
+[Unit]
+Description=Jeff's event manager
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=1
+User=jeffrey
+ExecStart={exe}
+RuntimeMaxSec=90m
+
+[Install]
+WantedBy=multi-user.target
+"#, exe=dump_error_and_ret!(std::env::current_exe()).to_string_lossy() );
+    println!();
+    println!("Installing to {}", install_service_file);
+    println!("{}", install_service_str);
+    println!();
+    dump_error_async!(
+      tokio::fs::write(install_service_file, install_service_str.as_bytes())
+    ).await;
+    dump_error_and_ret!(
+      tokio::process::Command::new("sudo")
+        .args(&["-n", "systemctl", "daemon-reload"])
+        .status()
+        .await
+    );
+    dump_error_and_ret!(
+      tokio::process::Command::new("sudo")
+        .args(&["-n", "systemctl", "stop", "eventmgr"])
+        .status()
+        .await
+    );
+    dump_error_and_ret!(
+      tokio::process::Command::new("sudo")
+        .args(&["-n", "systemctl", "enable", "--now", "eventmgr"])
+        .status()
+        .await
+    );
+    return;
+  }
+
+  // send message to server!
+
   let mut msg_bytes = Vec::new();
   dump_error!(
     ciborium::ser::into_writer(&args, &mut msg_bytes)
@@ -146,7 +195,6 @@ async fn handle_sway_msgs() {
   let mut events = dump_error_and_ret!( dump_error_and_ret!(swayipc_async::Connection::new().await).subscribe(subs).await );
   while let Some(event) = events.next().await {
     if let Ok(event) = event {
-      //println!("Sway event = {:?}", event);
       match event {
         swayipc_async::Event::Window(window_evt) => {
           if window_evt.change == swayipc_async::WindowChange::Focus {
@@ -171,8 +219,50 @@ async fn handle_sway_msgs() {
   }
 }
 
+
+
+static WINDOW_FOCUS_CPU_TASK: once_cell::sync::Lazy<std::sync::Mutex< Option<UndoableTask> >> = once_cell::sync::Lazy::new(||
+  std::sync::Mutex::new( Some(UndoableTask::create(||{},||{})) )
+);
+
 async fn on_window_focus(window_name: &str) {
   println!("Window focused = {:?}", window_name );
+  
+  // Always undo last task on focus change
+  if let Ok(mut last_focus_task) = WINDOW_FOCUS_CPU_TASK.lock() {
+    let taken_task = last_focus_task.take(); // Puts None in there
+    if let Some(mut task) = taken_task {
+      task.undo_it();
+    }
+  }
+
+  let lower_window = window_name.to_lowercase();
+  if lower_window.contains("team fortress") && lower_window.contains("opengl") {
+    // Highest performance!
+    let current_cpu = get_cpu();
+    if let Ok(mut last_focus_task) = WINDOW_FOCUS_CPU_TASK.lock() {
+      let mut task = UndoableTask::create(
+             || { tokio::task::spawn(set_cpu(CPU_GOV_PERFORMANCE)); },
+        move || { tokio::task::spawn(set_cpu(current_cpu)); },
+      );
+      task.do_it();
+      *last_focus_task = Some(task);
+    }
+  }
+  else if lower_window.contains("mozilla firefox") {
+    // Go to ondemand
+    let current_cpu = get_cpu();
+    if let Ok(mut last_focus_task) = WINDOW_FOCUS_CPU_TASK.lock() {
+      let mut task = UndoableTask::create(
+             || { tokio::task::spawn(set_cpu(CPU_GOV_ONDEMAND)); },
+        move || { tokio::task::spawn(set_cpu(current_cpu)); },
+      );
+      task.do_it();
+      *last_focus_task = Some(task);
+    }
+  }
+
+
 }
 
 async fn on_workspace_focus(workspace_name: &str) {
@@ -296,7 +386,7 @@ async fn mount_disks() {
 
     for (disk_block_device, (disk_mount_path, disk_mount_opts)) in MOUNT_DISKS.entries() {
       if std::path::Path::new(disk_block_device).exists() {
-        if ! is_mounted(disk_mount_path) {
+        if ! is_mounted(disk_mount_path).await {
           if ! std::path::Path::new(disk_mount_path).exists() {
             // Sudo create it, set ownership to jeffrey
             dump_error_and_ret!(
@@ -344,12 +434,81 @@ async fn mount_disks() {
   }
 }
 
-fn is_mounted(directory_path: &str) -> bool {
+async fn is_mounted(directory_path: &str) -> bool {
   if let Ok(info) = mountinfo::MountInfo::new() {
     return info.is_mounted(directory_path);
   }
   return false;
 }
+
+async fn set_cpu(governor: &str) {
+  println!("setting CPU to {}", governor);
+  dump_error_and_ret!(
+    tokio::process::Command::new("sudo")
+      .args(&["cpupower", "frequency-set", "-g", governor])
+      .status()
+      .await
+  );
+}
+
+// Trait lifetime gymnastics want &'static lifetimes, we'll give them &'static lifetimes!
+static CPU_GOV_CONSERVATIVE : &'static str = "conservative";
+static CPU_GOV_ONDEMAND     : &'static str = "ondemand";
+static CPU_GOV_USERSPACE    : &'static str = "userspace";
+static CPU_GOV_POWERSAVE    : &'static str = "powersave";
+static CPU_GOV_PERFORMANCE  : &'static str = "performance";
+static CPU_GOV_SCHEDUTIL    : &'static str = "schedutil";
+static CPU_GOV_UNK          : &'static str = "UNK";
+
+fn get_cpu() -> &'static str {
+  if let Ok(contents) = std::fs::read_to_string("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor") {
+    let contents = contents.trim();
+    if contents.contains(CPU_GOV_CONSERVATIVE) {
+      return CPU_GOV_CONSERVATIVE;
+    }
+    else if contents.contains(CPU_GOV_ONDEMAND) {
+      return CPU_GOV_ONDEMAND;
+    }
+    else if contents.contains(CPU_GOV_USERSPACE) {
+      return CPU_GOV_USERSPACE;
+    }
+    else if contents.contains(CPU_GOV_POWERSAVE) {
+      return CPU_GOV_POWERSAVE;
+    }
+    else if contents.contains(CPU_GOV_PERFORMANCE) {
+      return CPU_GOV_PERFORMANCE;
+    }
+    else if contents.contains(CPU_GOV_SCHEDUTIL) {
+      return CPU_GOV_SCHEDUTIL;
+    }
+  }
+  return CPU_GOV_UNK;
+}
+
+pub struct UndoableTask {
+  pub do_task: Box<dyn FnMut() -> () + Send>,
+  pub undo_task: Box<dyn FnMut() -> () + Send>,
+}
+
+impl UndoableTask {
+  pub fn create<F1, F2>(do_task: F1, undo_task: F2 ) -> UndoableTask
+    where 
+      F1: FnMut() -> () + Send + 'static,
+      F2: FnMut() -> () + Send + 'static
+  {
+    UndoableTask {
+      do_task: Box::new(do_task),
+      undo_task: Box::new(undo_task),
+    }
+  }
+  pub fn do_it(&mut self) {
+    (self.do_task)();
+  }
+  pub fn undo_it(&mut self) {
+    (self.undo_task)();
+  }
+}
+
 
 
 
