@@ -39,7 +39,7 @@ fn main() {
   //let mut rt = tokio::runtime::Runtime::new().unwrap();
   if args.len() > 1 {
     let rt = tokio::runtime::Builder::new_current_thread()
-      .enable_time()
+      .enable_all()
       .build()
       .expect("Could not build tokio runtime!");
 
@@ -58,49 +58,7 @@ fn main() {
 
 async fn event_client(args: &Vec<String>) {
   if args.contains(&"install".to_string()) {
-    // Assume we are running as root + write directly to service file
-    let install_service_file = "/etc/systemd/system/eventmgr.service";
-    let install_service_str = format!(r#"
-[Unit]
-Description=Jeff's event manager
-StartLimitIntervalSec=0
-
-[Service]
-Type=simple
-Restart=always
-RestartSec=1
-User=jeffrey
-ExecStart={exe}
-RuntimeMaxSec=90m
-
-[Install]
-WantedBy=multi-user.target
-"#, exe=dump_error_and_ret!(std::env::current_exe()).to_string_lossy() );
-    println!();
-    println!("Installing to {}", install_service_file);
-    println!("{}", install_service_str);
-    println!();
-    dump_error_async!(
-      tokio::fs::write(install_service_file, install_service_str.as_bytes())
-    ).await;
-    dump_error_and_ret!(
-      tokio::process::Command::new("sudo")
-        .args(&["-n", "systemctl", "daemon-reload"])
-        .status()
-        .await
-    );
-    dump_error_and_ret!(
-      tokio::process::Command::new("sudo")
-        .args(&["-n", "systemctl", "stop", "eventmgr"])
-        .status()
-        .await
-    );
-    dump_error_and_ret!(
-      tokio::process::Command::new("sudo")
-        .args(&["-n", "systemctl", "enable", "--now", "eventmgr"])
-        .status()
-        .await
-    );
+    install_self().await;
     return;
   }
 
@@ -117,14 +75,63 @@ WantedBy=multi-user.target
   ).await;
 }
 
+async fn install_self() {
+  // Assume we are running as root + write directly to service file
+  let install_service_file = "/etc/systemd/system/eventmgr.service";
+  let install_service_str = format!(r#"
+[Unit]
+Description=Jeff's event manager
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=1
+User=jeffrey
+ExecStart={exe}
+RuntimeMaxSec=90m
+
+[Install]
+WantedBy=multi-user.target
+"#, exe=dump_error_and_ret!(std::env::current_exe()).to_string_lossy() );
+  println!();
+  println!("Installing to {}", install_service_file);
+  println!("{}", install_service_str);
+  println!();
+  dump_error_async!(
+    tokio::fs::write(install_service_file, install_service_str.as_bytes())
+  ).await;
+  dump_error_and_ret!(
+    tokio::process::Command::new("sudo")
+      .args(&["-n", "systemctl", "daemon-reload"])
+      .status()
+      .await
+  );
+  dump_error_and_ret!(
+    tokio::process::Command::new("sudo")
+      .args(&["-n", "systemctl", "stop", "eventmgr"])
+      .status()
+      .await
+  );
+  dump_error_and_ret!(
+    tokio::process::Command::new("sudo")
+      .args(&["-n", "systemctl", "enable", "--now", "eventmgr"])
+      .status()
+      .await
+  );
+  println!("Installed!");
+}
+
 
 async fn eventmgr() {
-  println!("Beginning eventmgr event loop...");
+  notify("Beginning eventmgr event loop...").await;
 
   let mut handle_exit_signals_fut = tokio::task::spawn(handle_exit_signals());
   let mut handle_sway_msgs_fut = tokio::task::spawn(handle_sway_msgs());
   let mut handle_socket_msgs_fut = tokio::task::spawn(handle_socket_msgs());
   let mut poll_downloads_fut = tokio::task::spawn(poll_downloads());
+  let mut poll_ff_bookmarks_fut = tokio::task::spawn(poll_ff_bookmarks());
+  let mut poll_check_dexcom_fut = tokio::task::spawn(poll_check_dexcom());
   let mut mount_disks_fut = tokio::task::spawn(mount_disks());
 
   // We check for failed tasks and re-start them every 6 seconds
@@ -134,33 +141,55 @@ async fn eventmgr() {
     interval.tick().await;
 
     if handle_exit_signals_fut.is_finished() {
-      println!("Re-starting handle_exit_signals");
+      notify("Re-starting handle_exit_signals").await;
       handle_exit_signals_fut = tokio::task::spawn(handle_exit_signals());
     }
     
     if handle_sway_msgs_fut.is_finished() {
-      println!("Re-starting handle_sway_msgs");
+      notify("Re-starting handle_sway_msgs").await;
       handle_sway_msgs_fut = tokio::task::spawn(handle_sway_msgs());
     }
 
     if handle_socket_msgs_fut.is_finished() {
-      println!("Re-starting handle_socket_msgs");
+      notify("Re-starting handle_socket_msgs").await;
       handle_socket_msgs_fut = tokio::task::spawn(handle_socket_msgs());
     }
 
     if poll_downloads_fut.is_finished() {
-      println!("Re-starting poll_downloads");
+      notify("Re-starting poll_downloads").await;
       poll_downloads_fut = tokio::task::spawn(poll_downloads());
     }
 
+    if poll_ff_bookmarks_fut.is_finished() {
+      notify("Re-starting poll_ff_bookmarks").await;
+      poll_ff_bookmarks_fut = tokio::task::spawn(poll_ff_bookmarks());
+    }
+
+    if poll_check_dexcom_fut.is_finished() {
+      notify("Re-starting poll_check_dexcom").await;
+      poll_check_dexcom_fut = tokio::task::spawn(poll_check_dexcom());
+    }
+
     if mount_disks_fut.is_finished() {
-      println!("Re-starting mount_disks");
+      notify("Re-starting mount_disks").await;
       mount_disks_fut = tokio::task::spawn(mount_disks());
     }
 
   }
 }
 
+async fn notify(msg: &str) {
+  println!("{}", msg);
+  dump_error!(
+    notify_rust::Notification::new()
+      .summary("EventMgr")
+      .body(msg)
+      //.icon("firefox")
+      .timeout(notify_rust::Timeout::Milliseconds(6000)) //milliseconds
+      .show()
+  );
+
+}
 
 async fn handle_exit_signals() {
   let mut int_stream = dump_error_and_ret!(
@@ -416,6 +445,34 @@ async fn poll_downloads() {
       
     }
 
+  }
+}
+
+
+async fn poll_ff_bookmarks() {
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
+  loop {
+    interval.tick().await;
+
+    // See https://crates.io/crates/marionette
+    
+    
+  }
+}
+
+async fn poll_check_dexcom() {
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(120));
+  loop {
+    interval.tick().await;
+
+    // dexcom /tmp/dexcom.txt
+    dump_error_and_ret!(
+      tokio::process::Command::new("/j/bin/dexcom")
+        .args(&["/tmp/dexcom.txt"])
+        .status()
+        .await
+    );
+    
   }
 }
 
