@@ -36,14 +36,8 @@ macro_rules! dump_error_and_ret {
 fn main() {
   // Runtime spawns an i/o thread + others + manages task dispatch for us
   let args: Vec<String> = std::env::args().collect();
-  //let mut rt = tokio::runtime::Runtime::new().unwrap();
   if args.len() > 1 {
-    let rt = tokio::runtime::Builder::new_current_thread()
-      .enable_all()
-      .build()
-      .expect("Could not build tokio runtime!");
-
-    rt.block_on(event_client(&args));
+    event_client(&args);
   }
   else {
     let rt = tokio::runtime::Builder::new_multi_thread()
@@ -56,13 +50,13 @@ fn main() {
   }
 }
 
-async fn event_client(args: &Vec<String>) {
+fn event_client(args: &Vec<String>) {
   if args.contains(&"install".to_string()) {
-    install_self().await;
+    install_self();
     return;
   }
 
-  if run_local_event_client(args).await {
+  if run_local_event_client(args) {
     // Able to process request locally (usually key press args)
     return;
   }
@@ -72,14 +66,14 @@ async fn event_client(args: &Vec<String>) {
     ciborium::ser::into_writer(&args, &mut msg_bytes)
   );
 
-  let (client_sock, _unused_sock) = tokio::net::UnixDatagram::pair().expect("Could not make socket pair!");
-  dump_error_async!(
+  let (client_sock, _unused_sock) = std::os::unix::net::UnixDatagram::pair().expect("Could not make socket pair!");
+  dump_error!(
     client_sock.send_to(&msg_bytes, SERVER_SOCKET)
-  ).await;
+  );
 }
 
 
-async fn run_local_event_client(args: &Vec<String>) -> bool {
+fn run_local_event_client(args: &Vec<String>) -> bool {
   
   if args.contains(&"brightness-down".to_string()) || args.contains(&"brightness-up".to_string()) {
     let brightness_multiplier: f64;
@@ -144,7 +138,7 @@ async fn run_local_event_client(args: &Vec<String>) -> bool {
   return false;
 }
 
-async fn install_self() {
+fn install_self() {
   // Assume we are running as root + write directly to service file
   let install_service_file = "/etc/systemd/system/eventmgr.service";
   let install_service_str = format!(r#"
@@ -167,26 +161,23 @@ WantedBy=multi-user.target
   println!("Installing to {}", install_service_file);
   println!("{}", install_service_str);
   println!();
-  dump_error_async!(
-    tokio::fs::write(install_service_file, install_service_str.as_bytes())
-  ).await;
+  dump_error!(
+    std::fs::write(install_service_file, install_service_str.as_bytes())
+  );
   dump_error_and_ret!(
-    tokio::process::Command::new("sudo")
+    std::process::Command::new("sudo")
       .args(&["-n", "systemctl", "daemon-reload"])
       .status()
-      .await
   );
   dump_error_and_ret!(
-    tokio::process::Command::new("sudo")
+    std::process::Command::new("sudo")
       .args(&["-n", "systemctl", "stop", "eventmgr"])
       .status()
-      .await
   );
   dump_error_and_ret!(
-    tokio::process::Command::new("sudo")
+    std::process::Command::new("sudo")
       .args(&["-n", "systemctl", "enable", "--now", "eventmgr"])
       .status()
-      .await
   );
   println!("Installed!");
 }
