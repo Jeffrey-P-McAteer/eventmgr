@@ -122,10 +122,10 @@ fn run_local_event_client(args: &Vec<String>) -> bool {
         if let Some(bulbb::misc::LedFunction::KbdBacklight) = ld.info.function {
           
           if want_kbd_on {
-            ld.set_brightness(1);
+            dump_error!( ld.set_brightness(1) );
           }
           else {
-            ld.set_brightness(0);
+            dump_error!( ld.set_brightness(0) );
           }
 
         }
@@ -186,14 +186,17 @@ WantedBy=multi-user.target
 async fn eventmgr() {
   notify("Beginning eventmgr event loop...").await;
 
-  let mut handle_exit_signals_fut = tokio::task::spawn(handle_exit_signals());
-  let mut handle_sway_msgs_fut = tokio::task::spawn(handle_sway_msgs());
-  let mut handle_socket_msgs_fut = tokio::task::spawn(handle_socket_msgs());
-  let mut poll_downloads_fut = tokio::task::spawn(poll_downloads());
-  let mut poll_ff_bookmarks_fut = tokio::task::spawn(poll_ff_bookmarks());
-  let mut poll_check_dexcom_fut = tokio::task::spawn(poll_check_dexcom());
-  let mut mount_disks_fut = tokio::task::spawn(mount_disks());
-  let mut bump_cpu_for_performance_procs_fut = tokio::task::spawn(bump_cpu_for_performance_procs());
+  let mut tasks = vec![
+    PersistentAsyncTask::new("handle_exit_signals",            ||{ tokio::task::spawn(handle_exit_signals()) }),
+    PersistentAsyncTask::new("handle_sway_msgs",               ||{ tokio::task::spawn(handle_sway_msgs()) }),
+    PersistentAsyncTask::new("handle_socket_msgs",             ||{ tokio::task::spawn(handle_socket_msgs()) }),
+    PersistentAsyncTask::new("poll_downloads",                 ||{ tokio::task::spawn(poll_downloads()) }),
+    PersistentAsyncTask::new("poll_ff_bookmarks",              ||{ tokio::task::spawn(poll_ff_bookmarks()) }),
+    PersistentAsyncTask::new("poll_check_dexcom",              ||{ tokio::task::spawn(poll_check_dexcom()) }),
+    PersistentAsyncTask::new("mount_disks",                    ||{ tokio::task::spawn(mount_disks()) }),
+    PersistentAsyncTask::new("bump_cpu_for_performance_procs", ||{ tokio::task::spawn(bump_cpu_for_performance_procs()) }),
+
+  ];
 
   // We check for failed tasks and re-start them every 6 seconds
   let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(6));
@@ -201,46 +204,9 @@ async fn eventmgr() {
   loop {
     interval.tick().await;
 
-    if handle_exit_signals_fut.is_finished() {
-      notify("Re-starting handle_exit_signals").await;
-      handle_exit_signals_fut = tokio::task::spawn(handle_exit_signals());
+    for i in 0..tasks.len() {
+      tasks[i].ensure_running();
     }
-    
-    if handle_sway_msgs_fut.is_finished() {
-      notify("Re-starting handle_sway_msgs").await;
-      handle_sway_msgs_fut = tokio::task::spawn(handle_sway_msgs());
-    }
-
-    if handle_socket_msgs_fut.is_finished() {
-      notify("Re-starting handle_socket_msgs").await;
-      handle_socket_msgs_fut = tokio::task::spawn(handle_socket_msgs());
-    }
-
-    if poll_downloads_fut.is_finished() {
-      notify("Re-starting poll_downloads").await;
-      poll_downloads_fut = tokio::task::spawn(poll_downloads());
-    }
-
-    if poll_ff_bookmarks_fut.is_finished() {
-      notify("Re-starting poll_ff_bookmarks").await;
-      poll_ff_bookmarks_fut = tokio::task::spawn(poll_ff_bookmarks());
-    }
-
-    if poll_check_dexcom_fut.is_finished() {
-      notify("Re-starting poll_check_dexcom").await;
-      poll_check_dexcom_fut = tokio::task::spawn(poll_check_dexcom());
-    }
-
-    if mount_disks_fut.is_finished() {
-      notify("Re-starting mount_disks").await;
-      mount_disks_fut = tokio::task::spawn(mount_disks());
-    }
-
-    if bump_cpu_for_performance_procs_fut.is_finished() {
-      notify("Re-starting bump_cpu_for_performance_procs").await;
-      bump_cpu_for_performance_procs_fut = tokio::task::spawn(bump_cpu_for_performance_procs());
-    }
-
 
   }
 }
@@ -791,5 +757,36 @@ impl Drop for UndoableTask {
     self.undo_it(); // If process crashes, this ought to run
   }
 }
+
+pub struct PersistentAsyncTask {
+  pub name: String,
+  pub spawn_fn: Box<dyn FnMut() -> tokio::task::JoinHandle<()> + Send>,
+  pub running_join_handle: Option< tokio::task::JoinHandle<()> >,
+}
+
+impl PersistentAsyncTask {
+  pub fn new<F>(name: &str, spawn_fn: F) -> PersistentAsyncTask
+    where 
+        F: FnMut() -> tokio::task::JoinHandle<()> + Send + 'static
+  {
+    PersistentAsyncTask {
+      name: name.to_string(),
+      spawn_fn: Box::new(spawn_fn),
+      running_join_handle: None
+    }
+  }
+
+  pub async fn ensure_running(&mut self) {
+    let need_spawn = if let Some(ref handle) = &self.running_join_handle { handle.is_finished() } else { true };
+    if need_spawn {
+      notify(format!("re-starting {}", self.name).as_str()).await;
+      self.running_join_handle = Some( (self.spawn_fn)() );
+    }
+  }
+
+}
+
+
+
 
 
