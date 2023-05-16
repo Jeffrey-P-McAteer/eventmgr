@@ -62,7 +62,10 @@ async fn event_client(args: &Vec<String>) {
     return;
   }
 
-  // send message to server!
+  if run_local_event_client(args).await {
+    // Able to process request locally (usually key press args)
+    return;
+  }
 
   let mut msg_bytes = Vec::new();
   dump_error!(
@@ -73,6 +76,72 @@ async fn event_client(args: &Vec<String>) {
   dump_error_async!(
     client_sock.send_to(&msg_bytes, SERVER_SOCKET)
   ).await;
+}
+
+
+async fn run_local_event_client(args: &Vec<String>) -> bool {
+  
+  if args.contains(&"brightness-down".to_string()) || args.contains(&"brightness-up".to_string()) {
+    let brightness_multiplier: f64;
+    if args.contains(&"brightness-down".to_string()) {
+      brightness_multiplier = 0.80;
+    }
+    else {
+      brightness_multiplier = 1.25;
+    }
+    if let Ok(monitors) = bulbb::monitor::MonitorDevice::get_all_monitor_devices() {
+      for monitor in monitors {
+        let current_brightness = monitor.get_brightness();
+        println!("current_brightness={}", current_brightness);
+        let mut new_brightness = (current_brightness as f64 * brightness_multiplier) as u32;
+
+        if new_brightness == current_brightness {
+          if brightness_multiplier < 1.0 {
+            if new_brightness > 0 {
+              new_brightness -= 1;
+            }
+          }
+          else {
+            new_brightness += 1;
+          }
+        }
+        
+        if new_brightness < 1 {
+          new_brightness = 1;
+        }
+
+        println!("new_brightness={}", new_brightness);
+        dump_error!(
+          monitor.set_brightness(new_brightness)
+        );
+      }
+    }
+
+    return true;
+  }
+
+
+  if args.contains(&"kbd-on".to_string()) || args.contains(&"kbd-off".to_string()) {
+    let want_kbd_on = args.contains(&"kbd-on".to_string());
+    if let Ok(led_devices) = bulbb::misc::LedDevice::get_all_led_devices() {
+      for ld in led_devices {
+        if let Some(bulbb::misc::LedFunction::KbdBacklight) = ld.info.function {
+          
+          if want_kbd_on {
+            ld.set_brightness(1);
+          }
+          else {
+            ld.set_brightness(0);
+          }
+
+        }
+      }
+    }
+    return true;
+  }
+
+
+  return false;
 }
 
 async fn install_self() {
@@ -133,6 +202,7 @@ async fn eventmgr() {
   let mut poll_ff_bookmarks_fut = tokio::task::spawn(poll_ff_bookmarks());
   let mut poll_check_dexcom_fut = tokio::task::spawn(poll_check_dexcom());
   let mut mount_disks_fut = tokio::task::spawn(mount_disks());
+  let mut bump_cpu_for_performance_procs_fut = tokio::task::spawn(bump_cpu_for_performance_procs());
 
   // We check for failed tasks and re-start them every 6 seconds
   let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(6));
@@ -174,6 +244,12 @@ async fn eventmgr() {
       notify("Re-starting mount_disks").await;
       mount_disks_fut = tokio::task::spawn(mount_disks());
     }
+
+    if bump_cpu_for_performance_procs_fut.is_finished() {
+      notify("Re-starting bump_cpu_for_performance_procs").await;
+      bump_cpu_for_performance_procs_fut = tokio::task::spawn(bump_cpu_for_performance_procs());
+    }
+
 
   }
 }
@@ -455,7 +531,7 @@ async fn poll_ff_bookmarks() {
     interval.tick().await;
 
     // See https://crates.io/crates/marionette
-    
+
     
   }
 }
@@ -493,7 +569,7 @@ static MOUNT_DISKS: phf::Map<&'static str, (&'static str, &'static str) > = phf:
 };
 
 async fn mount_disks() {
-  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(2));
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(4));
 
   loop {
     interval.tick().await;
@@ -551,9 +627,42 @@ async fn mount_disks() {
 
 
 async fn bump_cpu_for_performance_procs() {
-  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(1200));
+
+  let mut have_high_cpu = false;
   loop {
     interval.tick().await;
+
+    let mut want_high_cpu = false;
+    for p in dump_error_and_ret!( procfs::process::all_processes() ) {
+      if let Ok(p) = p {
+        if let Ok(p_exe) = p.exe() {
+          if let Some(p_file_name) = p_exe.file_name() {
+            let p_file_name = p_file_name.to_string_lossy();
+            let heavy_p_running =
+              p_file_name == "gcc" || p_file_name == "clang" ||
+              p_file_name == "g++" || p_file_name == "clang++" ||
+              p_file_name == "rustc" || p_file_name == "cargo" ||
+              p_file_name == "make" || p_file_name == "pacman"
+            ;
+            if heavy_p_running {
+              want_high_cpu = true;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    if want_high_cpu && !have_high_cpu {
+      notify("Want high CPU!").await;
+      have_high_cpu = true; // pretend we changed something
+    }
+    else if !want_high_cpu && have_high_cpu {
+      notify("Set low/notmal CPU!").await;
+      have_high_cpu = false;
+
+    }
 
   }
 }

@@ -217,6 +217,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "bulbb"
+version = "0.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b18a8b133b98019591de40ef88b30e17e3d1439ae1894b012e0ea6b08f11fd7e"
+
+[[package]]
 name = "bumpalo"
 version = "3.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -432,6 +438,7 @@ name = "eventmgr"
 version = "0.1.0"
 dependencies = [
  "async-walkdir",
+ "bulbb",
  "ciborium",
  "futures",
  "mountinfo",
