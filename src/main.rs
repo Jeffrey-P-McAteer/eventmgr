@@ -205,7 +205,7 @@ async fn eventmgr() {
     interval.tick().await;
 
     for i in 0..tasks.len() {
-      tasks[i].ensure_running();
+      tasks[i].ensure_running().await;
     }
 
   }
