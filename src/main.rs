@@ -249,7 +249,7 @@ async fn eventmgr() {
     PersistentAsyncTask::new("poll_check_dexcom",              ||{ tokio::task::spawn(poll_check_dexcom()) }),
     PersistentAsyncTask::new("mount_disks",                    ||{ tokio::task::spawn(mount_disks()) }),
     PersistentAsyncTask::new("bump_cpu_for_performance_procs", ||{ tokio::task::spawn(bump_cpu_for_performance_procs()) }),
-
+    PersistentAsyncTask::new("partial_resume_paused_procs",    ||{ tokio::task::spawn(partial_resume_paused_procs()) }),
   ];
 
   // We check for failed tasks and re-start them every 6 seconds
@@ -449,6 +449,7 @@ async fn on_window_focus(window_name: &str) {
       task.do_it();
       *last_focus_task = Some(task);
     }
+    unpause_proc("hl2_linux").await;
   }
   else if lower_window.contains("mozilla firefox") {
     // Go to ondemand
@@ -461,6 +462,10 @@ async fn on_window_focus(window_name: &str) {
       task.do_it();
       *last_focus_task = Some(task);
     }
+    pause_proc("hl2_linux").await;
+  }
+  else {
+    pause_proc("hl2_linux").await;
   }
 
 
@@ -761,18 +766,80 @@ async fn bump_cpu_for_performance_procs() {
   }
 }
 
-static PAUSED_PROC_PIDS: once_cell::sync::Lazy<std::sync::Mutex< Vec<usize> >> = once_cell::sync::Lazy::new(||
-  std::sync::Mutex::new( vec![] )
+static PAUSED_PROC_PIDS: once_cell::sync::Lazy<std::sync::Mutex< Option<Vec<i32>> >> = once_cell::sync::Lazy::new(||
+  std::sync::Mutex::new( None )
 );
 
-async fn pause_pid(pid: usize) {
+async fn pause_proc(name: &str) {
+  let mut paused_something = false;
+  for p in dump_error_and_ret!( procfs::process::all_processes() ) {
+    if let Ok(p) = p {
+      if let Ok(p_exe) = p.exe() {
+        if let Some(p_file_name) = p_exe.file_name() {
+          let p_file_name = p_file_name.to_string_lossy();
+          if p_file_name == name {
+            pause_pid( p.pid ).await;
+            paused_something = true;
+          }
+        }
+      }
+    }
+  }
+  if paused_something {
+    notify(format!("paused {}", name).as_str()).await;
+  }
+}
+
+async fn pause_pid(pid: i32) {
   if let Ok(mut proc_pids) = PAUSED_PROC_PIDS.lock() {
-    dump_error_and_ret!(
-      nix::sys::signal::kill(
-        nix::unistd::Pid::from_raw(pid as i32), nix::sys::signal::Signal::SIGSTOP
-      )
-    );
-    proc_pids.push(pid);
+    if proc_pids.is_none() {
+      *proc_pids = Some(vec![]);
+    }
+    *proc_pids = if let Some(mut proc_pids) = proc_pids.take() {
+      dump_error_and_ret!(
+        nix::sys::signal::kill(
+          nix::unistd::Pid::from_raw(pid), nix::sys::signal::Signal::SIGSTOP
+        )
+      );
+      proc_pids.push(pid);
+
+      Some(proc_pids)
+    } else { None };
+  }
+}
+
+async fn unpause_pid(pid: i32) {
+  if let Ok(mut proc_pids) = PAUSED_PROC_PIDS.lock() {
+    *proc_pids = if let Some(mut proc_pids) = proc_pids.take() {
+      proc_pids.retain(|&p| p != pid); // retain all values which are not equal to pid
+      Some(proc_pids)
+    } else { None }
+  }
+  dump_error_and_ret!(
+    nix::sys::signal::kill(
+      nix::unistd::Pid::from_raw(pid), nix::sys::signal::Signal::SIGCONT
+    )
+  );
+}
+
+
+async fn unpause_proc(name: &str) {
+  let mut un_paused_something = false;
+  for p in dump_error_and_ret!( procfs::process::all_processes() ) {
+    if let Ok(p) = p {
+      if let Ok(p_exe) = p.exe() {
+        if let Some(p_file_name) = p_exe.file_name() {
+          let p_file_name = p_file_name.to_string_lossy();
+          if p_file_name == name {
+            unpause_pid( p.pid ).await;
+            un_paused_something = true;
+          }
+        }
+      }
+    }
+  }
+  if un_paused_something {
+    notify(format!("un-paused {}", name).as_str()).await;
   }
 }
 
@@ -782,24 +849,46 @@ async fn partial_resume_paused_procs() {
     interval.tick().await;
 
     if let Ok(mut proc_pids) = PAUSED_PROC_PIDS.lock() {
-      let mut pids_to_remove_from_list: Vec<usize> = vec![];
-      for proc_pid in proc_pids.iter() {
-        if let Err(_e) = procfs::process::Process::new(*proc_pid as i32) {
-          pids_to_remove_from_list.push( *proc_pid );
-          continue;
+      *proc_pids = if let Some(mut proc_pids) = proc_pids.take() {
+        let mut pids_to_remove_from_list: Vec<i32> = vec![];
+        for proc_pid in proc_pids.iter() {
+          if let Err(_e) = procfs::process::Process::new(*proc_pid as i32) {
+            pids_to_remove_from_list.push( *proc_pid );
+            continue;
+          }
+          dump_error!(
+            nix::sys::signal::kill(
+              nix::unistd::Pid::from_raw(*proc_pid as i32), nix::sys::signal::Signal::SIGCONT
+            )
+          );
         }
-        dump_error!(
-          nix::sys::signal::kill(
-            nix::unistd::Pid::from_raw(*proc_pid as i32), nix::sys::signal::Signal::SIGSTOP
-          )
-        );
-      }
-      // Finally drain vec of values in proc_pids
-      for pid_to_remove in pids_to_remove_from_list {
-        if let Some(pos) = proc_pids.iter().position(|x| *x == pid_to_remove) {
-          proc_pids.remove(pos);
+        // drain vec of processes which have exited
+        for pid_to_remove in pids_to_remove_from_list {
+          if let Some(pos) = proc_pids.iter().position(|x| *x == pid_to_remove) {
+            proc_pids.remove(pos);
+          }
         }
+        Some(proc_pids) // Return the vector we took
+      } else { None };
+    }
+
+    // Delay for 0.2s to allow continued procs to run
+    tokio::time::sleep( std::time::Duration::from_millis(250) ).await;
+
+    if let Ok(mut proc_pids) = PAUSED_PROC_PIDS.lock() {
+      *proc_pids = if let Some(mut proc_pids) = proc_pids.take() {
+        // Pause procs
+        for proc_pid in proc_pids.iter() {
+          dump_error!(
+            nix::sys::signal::kill(
+              nix::unistd::Pid::from_raw(*proc_pid as i32), nix::sys::signal::Signal::SIGSTOP
+            )
+          );
+        }
+
+        Some(proc_pids) // Return the vector we took
       }
+      else { None };
     }
 
   }
