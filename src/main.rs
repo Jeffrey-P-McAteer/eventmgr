@@ -135,6 +135,59 @@ fn run_local_event_client(args: &Vec<String>) -> bool {
   }
 
 
+  if args.contains(&"volume-up".to_string()) || args.contains(&"volume-down".to_string()) || args.contains(&"volume-mute-toggle".to_string()) {
+    let want_mute_toggle = args.contains(&"volume-mute-toggle".to_string());
+    let want_vol_up = args.contains(&"volume-up".to_string());
+
+    // We assume wireplumber is installed
+    if want_mute_toggle {
+      dump_error!(
+        std::process::Command::new("wpctl")
+          .args(&["set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"])
+          .status()
+      );
+    }
+    else {
+
+      let mut curr_volume: f64 = -1.0;
+
+      if let Ok(curr_vol_cmd_o) = std::process::Command::new("wpctl")
+            .args(&["get-volume", "@DEFAULT_AUDIO_SINK@"])
+            .output()
+      {
+        let vol_str = String::from_utf8_lossy(&curr_vol_cmd_o.stdout);
+        let words: Vec<&str>= vol_str.split(' ').collect();
+        println!("words = {:?}", words);
+        if words.len() > 1 {
+          let number_word = words[1].trim();
+          if let Ok(vol_num) = number_word.parse::<f64>() {
+            curr_volume = vol_num;
+          }
+        }
+      }
+
+      if want_vol_up {
+        notify_sync(format!("Volume {}%", (curr_volume * 105.0).round() ).as_str());
+        dump_error!(
+          std::process::Command::new("wpctl")
+            .args(&["set-volume", "-l", "1.5", "@DEFAULT_AUDIO_SINK@", "5%+"])
+            .status()
+        );
+      }
+      else {
+        notify_sync(format!("Volume {}%", (curr_volume * 95.0).round() ).as_str());
+        dump_error!(
+          std::process::Command::new("wpctl")
+            .args(&["set-volume", "@DEFAULT_AUDIO_SINK@", "5%-"])
+            .status()
+        );
+      }
+    }
+
+    return true;
+  }
+
+
   return false;
 }
 
@@ -221,7 +274,18 @@ async fn notify(msg: &str) {
       .timeout(notify_rust::Timeout::Milliseconds(6000)) //milliseconds
       .show()
   );
+}
 
+fn notify_sync(msg: &str) {
+  println!("{}", msg);
+  dump_error!(
+    notify_rust::Notification::new()
+      .summary("EventMgr")
+      .body(msg)
+      //.icon("firefox")
+      .timeout(notify_rust::Timeout::Milliseconds(6000)) //milliseconds
+      .show()
+  );
 }
 
 async fn handle_exit_signals() {
