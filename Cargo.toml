@@ -17,6 +17,7 @@ procfs = "0.15"
 nix = "0.26"
 notify-rust = "4.8"
 bulbb = "0"
+fastrand = "1.9"
 
 
 [profile.release]

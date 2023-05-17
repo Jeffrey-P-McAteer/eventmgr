@@ -245,6 +245,7 @@ async fn eventmgr() {
     PersistentAsyncTask::new("handle_socket_msgs",             ||{ tokio::task::spawn(handle_socket_msgs()) }),
     PersistentAsyncTask::new("poll_downloads",                 ||{ tokio::task::spawn(poll_downloads()) }),
     PersistentAsyncTask::new("poll_ff_bookmarks",              ||{ tokio::task::spawn(poll_ff_bookmarks()) }),
+    PersistentAsyncTask::new("poll_wallpaper_rotation",        ||{ tokio::task::spawn(poll_wallpaper_rotation()) }),
     PersistentAsyncTask::new("poll_check_dexcom",              ||{ tokio::task::spawn(poll_check_dexcom()) }),
     PersistentAsyncTask::new("mount_disks",                    ||{ tokio::task::spawn(mount_disks()) }),
     PersistentAsyncTask::new("bump_cpu_for_performance_procs", ||{ tokio::task::spawn(bump_cpu_for_performance_procs()) }),
@@ -396,6 +397,23 @@ async fn handle_sway_msgs() {
           println!("Unhandled sway event = {:?}", unhandled_evt);
         }
       }
+    }
+  }
+}
+
+// async fn run_sway_cmd<T: AsRef<str>>(cmd: T) {
+//   if let Ok(mut conn) = swayipc_async::Connection::new().await {
+//     dump_error_and_ret!( conn.run_command(cmd).await );
+//   }
+// }
+
+async fn set_sway_wallpaper<T: AsRef<str>>(wallpaper: T) {
+  let wallpaper = wallpaper.as_ref();
+  if let Ok(mut conn) = swayipc_async::Connection::new().await {
+    for output in dump_error_and_ret!( conn.get_outputs().await ) {
+      let wallpaper_cmd = format!("output {} bg {} fill", output.name, wallpaper);
+      println!("Running wallpaper cmd: {}", wallpaper_cmd);
+      dump_error_and_ret!( conn.run_command(wallpaper_cmd).await );
     }
   }
 }
@@ -552,6 +570,60 @@ async fn poll_ff_bookmarks() {
     interval.tick().await;
 
     // See https://crates.io/crates/marionette
+
+    
+  }
+}
+
+
+
+// Higher numbers selected more often
+static WALLPAPER_DIR_WEIGHTS: phf::Map<&'static str, usize> = phf::phf_map! {
+  "/j/photos/wallpaper/earth" => 100,
+  "/j/photos/wallpaper/sky"   => 20,
+  "/j/photos/wallpaper/space" => 20,
+};
+
+async fn poll_wallpaper_rotation() {
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(10));
+
+  let mut weights_total: usize = 0;
+  for (_, weight) in WALLPAPER_DIR_WEIGHTS.entries() {
+    weights_total += weight;
+  }
+
+  loop {
+    interval.tick().await;
+
+    let mut picked_wp_dir = "";
+
+    for _ in 0..500 { // "kinda" an infinite loop, exiting when a dir has been picked
+      for (wp_dir, dir_weight) in WALLPAPER_DIR_WEIGHTS.entries() {
+        let rand_num = fastrand::usize(0..weights_total);
+        if rand_num <= *dir_weight {
+          picked_wp_dir = wp_dir;
+          break;
+        }
+      }
+      if picked_wp_dir.len() > 0 {
+        break;
+      }
+    }
+
+    if picked_wp_dir.len() > 0 {
+      // search for a file at random
+      let mut entries = dump_error_and_ret!( tokio::fs::read_dir(picked_wp_dir).await );
+      let mut entry_paths = vec![];
+      while let Some(entry) = dump_error_and_ret!( entries.next_entry().await ) {
+        entry_paths.push( entry.path() );
+      }
+      if entry_paths.len() > 0 {
+        let i = fastrand::usize(0..entry_paths.len());
+        set_sway_wallpaper(
+          entry_paths[i].to_string_lossy()
+        ).await;
+      }
+    }
 
     
   }
