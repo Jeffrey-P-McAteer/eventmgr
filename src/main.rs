@@ -586,7 +586,7 @@ static WALLPAPER_DIR_WEIGHTS: phf::Map<&'static str, usize> = phf::phf_map! {
 };
 
 async fn poll_wallpaper_rotation() {
-  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(10));
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs( 180 ));
 
   let mut weights_total: usize = 0;
   for (_, weight) in WALLPAPER_DIR_WEIGHTS.entries() {
