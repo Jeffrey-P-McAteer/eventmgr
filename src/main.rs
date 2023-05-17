@@ -3,6 +3,7 @@ use futures::prelude::*;
 
 pub const SERVER_SOCKET: &'static str = "/tmp/eventmgr.sock";
 
+#[allow(unused_macros)]
 macro_rules! dump_error {
   ($e:expr) => {
     if let Err(err) = $e {
@@ -11,6 +12,7 @@ macro_rules! dump_error {
   }
 }
 
+#[allow(unused_macros)]
 macro_rules! dump_error_async {
   ($e:expr) => {
     async {
@@ -21,6 +23,7 @@ macro_rules! dump_error_async {
   }
 }
 
+#[allow(unused_macros)]
 macro_rules! dump_error_and_ret {
   ($e:expr) => {
     match $e {
@@ -353,13 +356,8 @@ async fn handle_exit_signals() {
       _sig_int = int_stream.recv() => {
         println!("Got SIGINT, shutting down!");
 
-        if let Ok(mut last_focus_task) = WINDOW_FOCUS_CPU_TASK.lock() {
-          let taken_task = last_focus_task.take();
-          std::mem::drop(taken_task);
-        }
-
         // Allow spawned futures to complete...
-        tokio::time::sleep( tokio::time::Duration::from_millis(750) ).await;
+        tokio::time::sleep( tokio::time::Duration::from_millis(500) ).await;
 
         println!("Goodbye!");
 
@@ -368,13 +366,8 @@ async fn handle_exit_signals() {
       _sig_term = term_stream.recv() => {
         println!("Got SIGTERM, shutting down!");
 
-        if let Ok(mut last_focus_task) = WINDOW_FOCUS_CPU_TASK.lock() {
-          let taken_task = last_focus_task.take();
-          std::mem::drop(taken_task);
-        }
-
         // Allow spawned futures to complete...
-        tokio::time::sleep( tokio::time::Duration::from_millis(750) ).await;
+        tokio::time::sleep( tokio::time::Duration::from_millis(500) ).await;
 
         println!("Goodbye!");
 
@@ -467,52 +460,20 @@ async fn set_sway_wallpaper<T: AsRef<str>>(wallpaper: T) {
 }
 
 
-
-static WINDOW_FOCUS_CPU_TASK: once_cell::sync::Lazy<std::sync::Mutex< Option<UndoableTask> >> = once_cell::sync::Lazy::new(||
-  std::sync::Mutex::new( None )
-);
-
 async fn on_window_focus(window_name: &str) {
   println!("Window focused = {:?}", window_name );
-  
-  // Always undo last task on focus change
-  if let Ok(mut last_focus_task) = WINDOW_FOCUS_CPU_TASK.lock() {
-    /*let taken_task = last_focus_task.take(); // Puts None in there
-    if let Some(mut task) = taken_task {
-      task.undo_it();
-    }*/
-    // .undo_it() called in Drop, so guaranteed to run! \o/
-    let _taken_task = last_focus_task.take();
-  }
 
   let lower_window = window_name.to_lowercase();
   if lower_window.contains("team fortress") && lower_window.contains("opengl") {
-    // Highest performance!
-    let current_cpu = get_cpu();
-    if let Ok(mut last_focus_task) = WINDOW_FOCUS_CPU_TASK.lock() {
-      let mut task = UndoableTask::create(
-             || { tokio::task::spawn(set_cpu(CPU_GOV_PERFORMANCE)); },
-        move || { tokio::task::spawn(set_cpu(current_cpu)); },
-      );
-      task.do_it();
-      *last_focus_task = Some(task);
-    }
+    on_wanted_cpu_level(CPU_GOV_PERFORMANCE).await;
     unpause_proc("hl2_linux").await;
   }
   else if lower_window.contains("mozilla firefox") {
-    // Go to ondemand
-    let current_cpu = get_cpu();
-    if let Ok(mut last_focus_task) = WINDOW_FOCUS_CPU_TASK.lock() {
-      let mut task = UndoableTask::create(
-             || { tokio::task::spawn(set_cpu(CPU_GOV_ONDEMAND)); },
-        move || { tokio::task::spawn(set_cpu(current_cpu)); },
-      );
-      task.do_it();
-      *last_focus_task = Some(task);
-    }
+    on_wanted_cpu_level(CPU_GOV_ONDEMAND).await;
     pause_proc("hl2_linux").await;
   }
   else {
+    on_wanted_cpu_level(CPU_GOV_ONDEMAND).await;
     pause_proc("hl2_linux").await;
   }
 
@@ -522,6 +483,19 @@ async fn on_window_focus(window_name: &str) {
 async fn on_workspace_focus(workspace_name: &str) {
   println!("Workspace focused = {:?}", workspace_name );
 }
+
+// static LAST_CPU_LEVEL: once_cell::sync::Lazy<(&str, usize)> = once_cell::sync::Lazy::new(|| (CPU_GOV_ONDEMAND, 0) );
+
+async fn on_wanted_cpu_level(wanted_cpu_level: &str) {
+  let current_cpu_level = get_cpu().await;
+  if current_cpu_level == wanted_cpu_level {
+    return; // NOP
+  }
+  set_cpu(wanted_cpu_level).await;
+}
+
+// TODO handle lowering CPU level over time / desktop activity
+
 
 async fn handle_socket_msgs() {
   if std::path::Path::new(SERVER_SOCKET).exists() {
@@ -802,21 +776,17 @@ async fn bump_cpu_for_performance_procs() {
     }
 
     if want_high_cpu && !have_high_cpu {
-      notify("Want high CPU!").await;
+      on_wanted_cpu_level(CPU_GOV_PERFORMANCE).await;
       have_high_cpu = true; // pretend we changed something
     }
     else if !want_high_cpu && have_high_cpu {
-      notify("Set low/notmal CPU!").await;
+      on_wanted_cpu_level(CPU_GOV_ONDEMAND).await;
       have_high_cpu = false;
 
     }
 
   }
 }
-
-// once_cell::sync::Lazy<std::sync::Mutex< Option<UndoableTask> >> = once_cell::sync::Lazy::new(||
-//   std::sync::Mutex::new( None )
-// );
 
 
 // anything < 4 is considered is an invalid value for PIDs,
@@ -999,8 +969,8 @@ static CPU_GOV_PERFORMANCE  : &'static str = "performance";
 static CPU_GOV_SCHEDUTIL    : &'static str = "schedutil";
 static CPU_GOV_UNK          : &'static str = "UNK";
 
-fn get_cpu() -> &'static str {
-  if let Ok(contents) = std::fs::read_to_string("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor") {
+async fn get_cpu() -> &'static str {
+  if let Ok(contents) = tokio::fs::read_to_string("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor").await {
     let contents = contents.trim();
     if contents.contains(CPU_GOV_CONSERVATIVE) {
       return CPU_GOV_CONSERVATIVE;
@@ -1024,35 +994,6 @@ fn get_cpu() -> &'static str {
   return CPU_GOV_UNK;
 }
 
-pub struct UndoableTask {
-  pub do_task: Box<dyn FnMut() -> () + Send>,
-  pub undo_task: Box<dyn FnMut() -> () + Send>,
-}
-
-impl UndoableTask {
-  pub fn create<F1, F2>(do_task: F1, undo_task: F2 ) -> UndoableTask
-    where 
-      F1: FnMut() -> () + Send + 'static,
-      F2: FnMut() -> () + Send + 'static
-  {
-    UndoableTask {
-      do_task: Box::new(do_task),
-      undo_task: Box::new(undo_task),
-    }
-  }
-  pub fn do_it(&mut self) {
-    (self.do_task)();
-  }
-  pub fn undo_it(&mut self) {
-    (self.undo_task)();
-  }
-}
-
-impl Drop for UndoableTask {
-  fn drop(&mut self) {
-    self.undo_it(); // If process crashes, this ought to run
-  }
-}
 
 pub struct PersistentAsyncTask {
   pub name: String,
