@@ -73,9 +73,23 @@ fn event_client(args: &Vec<String>) {
 }
 
 
+// Maps intel / sysfs brightness ranges to a list of acceptable
+// ddcutil brightness ranges.
+static BRIGHTNESS_DDCUTIL_MAP: &[((u32, u32), (u32, u32))] = &[
+  ((0, 450),     (1, 1)),
+  ((450, 2000),  (1, 10)),
+  ((2000, 5000), (10, 50)),
+  ((5000, 25000), (50, 100)),
+];
+
+
+
 fn run_local_event_client(args: &Vec<String>) -> bool {
   
   if args.contains(&"brightness-down".to_string()) || args.contains(&"brightness-up".to_string()) {
+
+    let mut wanted_ddcutil_brightness_val: Option<u32> = None;
+
     let brightness_multiplier: f64;
     if args.contains(&"brightness-down".to_string()) {
       brightness_multiplier = 0.80;
@@ -109,63 +123,87 @@ fn run_local_event_client(args: &Vec<String>) -> bool {
         dump_error!(
           monitor.set_brightness(new_brightness)
         );
+
+        for ((begin_b, end_b), (ddc_begin_b, ddc_end_b)) in BRIGHTNESS_DDCUTIL_MAP {
+          if new_brightness >= *begin_b && new_brightness <= *end_b {
+            let range = end_b - begin_b;
+            let fraction_of_range = (new_brightness - begin_b) as f32 / range as f32;
+            let ddc_range = ddc_end_b - ddc_begin_b;
+            let ddc_used_range = (ddc_range as f32 * fraction_of_range) as u32;
+            
+            wanted_ddcutil_brightness_val = Some(ddc_begin_b + ddc_used_range);
+
+            break;
+          }
+        }
+
       }
     }
+
+
     
     // Also adjust ddcutil devices
     let ddcutil_serials = [
       "PTBLAJA000229",
     ];
     for ddcutil_serial in ddcutil_serials.iter() {
-      let mut current_brightness: usize = 0;
+      // let mut current_brightness: usize = 0;
+      // if let Ok(curr_bright_cmd_o) = std::process::Command::new("ddcutil")
+      //       .args(&["getvcp", "0x10", "--sn", ddcutil_serial, "--sleep-multiplier", "0.1", "--noverify"])
+      //       .output()
+      // {
+      //   let bright_str = String::from_utf8_lossy(&curr_bright_cmd_o.stdout);
+      //   let words: Vec<&str>= bright_str.split(' ').collect();
+      //   if words.len() > 1 {
+      //     // Scan from index 25 -> 35 taking first number that parses
+      //     for i in 25..35 {
+      //       if words.len() > i {
+      //         let number_word = words[i].trim();
+      //         let number_word = number_word.replace(&[','][..], "");
+      //         if let Ok(curr_brightness_num) = number_word.parse::<usize>() {
+      //           current_brightness = curr_brightness_num;
+      //           break;
+      //         }
+      //       }
+      //     }
+      //   }
+      // }
 
-      if let Ok(curr_bright_cmd_o) = std::process::Command::new("ddcutil")
-            .args(&["getvcp", "0x10", "--sn", ddcutil_serial, "--sleep-multiplier", "0.1", "--noverify"])
-            .output()
-      {
-        let bright_str = String::from_utf8_lossy(&curr_bright_cmd_o.stdout);
-        let words: Vec<&str>= bright_str.split(' ').collect();
-        if words.len() > 1 {
-          // Scan from index 25 -> 35 taking first number that parses
-          for i in 25..35 {
-            if words.len() > i {
-              let number_word = words[i].trim();
-              let number_word = number_word.replace(&[','][..], "");
-              if let Ok(curr_brightness_num) = number_word.parse::<usize>() {
-                current_brightness = curr_brightness_num;
-                break;
-              }
-            }
-          }
-        }
-      }
+      // println!("current_brightness={}", current_brightness);
 
-      println!("current_brightness={}", current_brightness);
+      // let mut new_brightness = (current_brightness as f64 * (brightness_multiplier*2.0) ) as usize;
 
-      let mut new_brightness = (current_brightness as f64 * brightness_multiplier) as usize;
-
-      if new_brightness == current_brightness {
-        if brightness_multiplier < 1.0 {
-          if new_brightness > 0 {
-            new_brightness -= 1;
-          }
-        }
-        else {
-          new_brightness += 1;
-        }
-      }
+      // if new_brightness == current_brightness {
+      //   if brightness_multiplier < 1.0 {
+      //     if new_brightness > 0 {
+      //       new_brightness -= 1;
+      //     }
+      //   }
+      //   else {
+      //     new_brightness += 1;
+      //   }
+      // }
       
-      if new_brightness < 1 {
-        new_brightness = 1;
+      // if new_brightness < 1 {
+      //   new_brightness = 1;
+      // }
+
+      // println!("new_brightness={}", new_brightness);
+
+      // dump_error!(
+      //   std::process::Command::new("ddcutil")
+      //     .args(&["setvcp", "0x10", format!("{}", new_brightness).as_str(), "--sn", ddcutil_serial, "--sleep-multiplier", "0.1", "--noverify"])
+      //     .status()
+      // );
+
+      println!("wanted_ddcutil_brightness_val = {:?}", wanted_ddcutil_brightness_val);
+      if let Some(wanted_ddcutil_brightness_val) = wanted_ddcutil_brightness_val {
+        dump_error!(
+          std::process::Command::new("ddcutil")
+            .args(&["setvcp", "0x10", format!("{}", wanted_ddcutil_brightness_val).as_str(), "--sn", ddcutil_serial, "--sleep-multiplier", "0.1", "--noverify"])
+            .status()
+        );
       }
-
-      println!("new_brightness={}", new_brightness);
-
-      dump_error!(
-        std::process::Command::new("ddcutil")
-          .args(&["setvcp", "0x10", format!("{}", new_brightness).as_str(), "--sn", ddcutil_serial, "--sleep-multiplier", "0.1", "--noverify"])
-          .status()
-      );
 
     }
 
