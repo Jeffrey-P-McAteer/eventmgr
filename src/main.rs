@@ -579,6 +579,7 @@ async fn poll_ff_bookmarks() {
 
 // Higher numbers selected more often
 static WALLPAPER_DIR_WEIGHTS: phf::Map<&'static str, usize> = phf::phf_map! {
+  "/j/photos/wallpaper/ocean" => 200,
   "/j/photos/wallpaper/earth" => 100,
   "/j/photos/wallpaper/sky"   => 20,
   "/j/photos/wallpaper/space" => 20,
