@@ -814,9 +814,33 @@ async fn bump_cpu_for_performance_procs() {
   }
 }
 
-static PAUSED_PROC_PIDS: once_cell::sync::Lazy<std::sync::Mutex< Option<Vec<i32>> >> = once_cell::sync::Lazy::new(||
-  std::sync::Mutex::new( None )
-);
+// once_cell::sync::Lazy<std::sync::Mutex< Option<UndoableTask> >> = once_cell::sync::Lazy::new(||
+//   std::sync::Mutex::new( None )
+// );
+
+
+// anything < 4 is considered is an invalid value for PIDs,
+// anything > 4 will be paused. If a request for a new PID to be
+// paused comes in and all slots are full the request is ignored.
+static PAUSED_PROC_PIDS: once_cell::sync::Lazy<[std::sync::atomic::AtomicI32; 16]> = once_cell::sync::Lazy::new(|| [
+  std::sync::atomic::AtomicI32::new(0),
+  std::sync::atomic::AtomicI32::new(0),
+  std::sync::atomic::AtomicI32::new(0),
+  std::sync::atomic::AtomicI32::new(0),
+  std::sync::atomic::AtomicI32::new(0),
+  std::sync::atomic::AtomicI32::new(0),
+  std::sync::atomic::AtomicI32::new(0),
+  std::sync::atomic::AtomicI32::new(0),
+
+  std::sync::atomic::AtomicI32::new(0),
+  std::sync::atomic::AtomicI32::new(0),
+  std::sync::atomic::AtomicI32::new(0),
+  std::sync::atomic::AtomicI32::new(0),
+  std::sync::atomic::AtomicI32::new(0),
+  std::sync::atomic::AtomicI32::new(0),
+  std::sync::atomic::AtomicI32::new(0),
+  std::sync::atomic::AtomicI32::new(0),
+]);
 
 async fn pause_proc(name: &str) {
   let mut paused_something = false;
@@ -840,34 +864,36 @@ async fn pause_proc(name: &str) {
 }
 
 async fn pause_pid(pid: i32) -> bool {
-  let mut added_pid = false;
-  if let Ok(mut proc_pids) = PAUSED_PROC_PIDS.lock() {
-    if proc_pids.is_none() {
-      *proc_pids = Some(vec![]);
+
+  // First check if we have already paused this PID + ignore if so
+  for i in 0..PAUSED_PROC_PIDS.len() {
+    if PAUSED_PROC_PIDS[i].load(std::sync::atomic::Ordering::Relaxed) == pid {
+      return false;
     }
-    *proc_pids = if let Some(mut proc_pids) = proc_pids.take() {
+  }
+
+  // Now write to first empty slot
+  for i in 0..PAUSED_PROC_PIDS.len() {
+    if PAUSED_PROC_PIDS[i].load(std::sync::atomic::Ordering::Relaxed) < 4 {
+      PAUSED_PROC_PIDS[i].store(pid, std::sync::atomic::Ordering::Relaxed);
       dump_error!(
         nix::sys::signal::kill(
           nix::unistd::Pid::from_raw(pid), nix::sys::signal::Signal::SIGSTOP
         )
       );
-      if ! proc_pids.contains(&pid) {
-        proc_pids.push(pid);
-        added_pid = true;
-      }
-
-      Some(proc_pids)
-    } else { None };
+      return true;
+    }
   }
-  return added_pid;
+
+  return false;
 }
 
 async fn unpause_pid(pid: i32) {
-  if let Ok(mut proc_pids) = PAUSED_PROC_PIDS.lock() {
-    *proc_pids = if let Some(mut proc_pids) = proc_pids.take() {
-      proc_pids.retain(|&p| p != pid); // retain all values which are not equal to pid
-      Some(proc_pids)
-    } else { None }
+  // For all slots, set to 0 if == pid
+  for i in 0..PAUSED_PROC_PIDS.len() {
+    if PAUSED_PROC_PIDS[i].load(std::sync::atomic::Ordering::Relaxed) == pid {
+      PAUSED_PROC_PIDS[i].store(0, std::sync::atomic::Ordering::Relaxed);
+    }
   }
   dump_error_and_ret!(
     nix::sys::signal::kill(
@@ -902,47 +928,37 @@ async fn partial_resume_paused_procs() {
   loop {
     interval.tick().await;
 
-    if let Ok(mut proc_pids) = PAUSED_PROC_PIDS.lock() {
-      *proc_pids = if let Some(mut proc_pids) = proc_pids.take() {
-        let mut pids_to_remove_from_list: Vec<i32> = vec![];
-        for proc_pid in proc_pids.iter() {
-          if let Err(_e) = procfs::process::Process::new(*proc_pid as i32) {
-            pids_to_remove_from_list.push( *proc_pid );
-            continue;
-          }
+    for i in 0..PAUSED_PROC_PIDS.len() {
+      let proc_pid = PAUSED_PROC_PIDS[i].load(std::sync::atomic::Ordering::Relaxed);
+      if proc_pid >= 4 {
+        // First see if no longer running + zero if so
+        if let Err(_e) = procfs::process::Process::new(proc_pid) {
+          PAUSED_PROC_PIDS[i].store(0, std::sync::atomic::Ordering::Relaxed);
+        }
+        else {
+          // PID is running and was stopped, continue it!
           dump_error!(
             nix::sys::signal::kill(
-              nix::unistd::Pid::from_raw(*proc_pid as i32), nix::sys::signal::Signal::SIGCONT
+              nix::unistd::Pid::from_raw(proc_pid), nix::sys::signal::Signal::SIGCONT
             )
           );
         }
-        // drain vec of processes which have exited
-        for pid_to_remove in pids_to_remove_from_list {
-          if let Some(pos) = proc_pids.iter().position(|x| *x == pid_to_remove) {
-            proc_pids.remove(pos);
-          }
-        }
-        Some(proc_pids) // Return the vector we took
-      } else { None };
+      }
     }
 
     // Delay for 0.2s to allow continued procs to run
     tokio::time::sleep( std::time::Duration::from_millis(250) ).await;
 
-    if let Ok(mut proc_pids) = PAUSED_PROC_PIDS.lock() {
-      *proc_pids = if let Some(mut proc_pids) = proc_pids.take() {
-        // Pause procs
-        for proc_pid in proc_pids.iter() {
-          dump_error!(
-            nix::sys::signal::kill(
-              nix::unistd::Pid::from_raw(*proc_pid as i32), nix::sys::signal::Signal::SIGSTOP
-            )
-          );
-        }
-
-        Some(proc_pids) // Return the vector we took
+    for i in 0..PAUSED_PROC_PIDS.len() {
+      let proc_pid = PAUSED_PROC_PIDS[i].load(std::sync::atomic::Ordering::Relaxed);
+      if proc_pid >= 4 {
+        // Go back to sleep
+        dump_error!(
+          nix::sys::signal::kill(
+            nix::unistd::Pid::from_raw(proc_pid), nix::sys::signal::Signal::SIGSTOP
+          )
+        );
       }
-      else { None };
     }
 
   }
