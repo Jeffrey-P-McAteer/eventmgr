@@ -3,38 +3,12 @@ use futures::prelude::*;
 
 pub const SERVER_SOCKET: &'static str = "/tmp/eventmgr.sock";
 
-#[allow(unused_macros)]
-macro_rules! dump_error {
-  ($e:expr) => {
-    if let Err(err) = $e {
-      eprintln!("ERROR> {:?}", err);
-    }
-  }
-}
+pub mod structs;
+#[macro_use]
+pub mod macros;
 
-#[allow(unused_macros)]
-macro_rules! dump_error_async {
-  ($e:expr) => {
-    async {
-      if let Err(err) = $e.await {
-        eprintln!("ERROR> {:?}", err);
-      }
-    }
-  }
-}
-
-#[allow(unused_macros)]
-macro_rules! dump_error_and_ret {
-  ($e:expr) => {
-    match $e {
-      Err(err) => {
-        eprintln!("ERROR> {:?}", err);
-        return;
-      }
-      Ok(val) => val
-    }
-  }
-}
+use structs::*;
+use macros::*;
 
 fn main() {
   // Runtime spawns an i/o thread + others + manages task dispatch for us
@@ -992,35 +966,6 @@ async fn get_cpu() -> &'static str {
     }
   }
   return CPU_GOV_UNK;
-}
-
-
-pub struct PersistentAsyncTask {
-  pub name: String,
-  pub spawn_fn: Box<dyn FnMut() -> tokio::task::JoinHandle<()> + Send>,
-  pub running_join_handle: Option< tokio::task::JoinHandle<()> >,
-}
-
-impl PersistentAsyncTask {
-  pub fn new<F>(name: &str, spawn_fn: F) -> PersistentAsyncTask
-    where 
-        F: FnMut() -> tokio::task::JoinHandle<()> + Send + 'static
-  {
-    PersistentAsyncTask {
-      name: name.to_string(),
-      spawn_fn: Box::new(spawn_fn),
-      running_join_handle: None
-    }
-  }
-
-  pub async fn ensure_running(&mut self) {
-    let need_spawn = if let Some(ref handle) = &self.running_join_handle { handle.is_finished() } else { true };
-    if need_spawn {
-      notify(format!("re-starting {}", self.name).as_str()).await;
-      self.running_join_handle = Some( (self.spawn_fn)() );
-    }
-  }
-
 }
 
 
