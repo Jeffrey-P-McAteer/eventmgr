@@ -83,6 +83,7 @@ fn run_local_event_client(args: &Vec<String>) -> bool {
     else {
       brightness_multiplier = 1.25;
     }
+    // Adjust all devices which present under /sys
     if let Ok(monitors) = bulbb::monitor::MonitorDevice::get_all_monitor_devices() {
       for monitor in monitors {
         let current_brightness = monitor.get_brightness();
@@ -110,6 +111,64 @@ fn run_local_event_client(args: &Vec<String>) -> bool {
         );
       }
     }
+    
+    // Also adjust ddcutil devices
+    let ddcutil_serials = [
+      "PTBLAJA000229",
+    ];
+    for ddcutil_serial in ddcutil_serials.iter() {
+      let mut current_brightness: usize = 0;
+
+      if let Ok(curr_bright_cmd_o) = std::process::Command::new("ddcutil")
+            .args(&["getvcp", "0x10", "--sn", ddcutil_serial, "--sleep-multiplier", "0.1", "--noverify"])
+            .output()
+      {
+        let bright_str = String::from_utf8_lossy(&curr_bright_cmd_o.stdout);
+        let words: Vec<&str>= bright_str.split(' ').collect();
+        if words.len() > 1 {
+          // Scan from index 25 -> 35 taking first number that parses
+          for i in 25..35 {
+            if words.len() > i {
+              let number_word = words[i].trim();
+              let number_word = number_word.replace(&[','][..], "");
+              if let Ok(curr_brightness_num) = number_word.parse::<usize>() {
+                current_brightness = curr_brightness_num;
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      println!("current_brightness={}", current_brightness);
+
+      let mut new_brightness = (current_brightness as f64 * brightness_multiplier) as usize;
+
+      if new_brightness == current_brightness {
+        if brightness_multiplier < 1.0 {
+          if new_brightness > 0 {
+            new_brightness -= 1;
+          }
+        }
+        else {
+          new_brightness += 1;
+        }
+      }
+      
+      if new_brightness < 1 {
+        new_brightness = 1;
+      }
+
+      println!("new_brightness={}", new_brightness);
+
+      dump_error!(
+        std::process::Command::new("ddcutil")
+          .args(&["setvcp", "0x10", format!("{}", new_brightness).as_str(), "--sn", ddcutil_serial, "--sleep-multiplier", "0.1", "--noverify"])
+          .status()
+      );
+
+    }
+
 
     return true;
   }
@@ -778,8 +837,9 @@ async fn pause_proc(name: &str) {
         if let Some(p_file_name) = p_exe.file_name() {
           let p_file_name = p_file_name.to_string_lossy();
           if p_file_name == name {
-            pause_pid( p.pid ).await;
-            paused_something = true;
+            if pause_pid( p.pid ).await {
+              paused_something = true;
+            }
           }
         }
       }
@@ -790,22 +850,27 @@ async fn pause_proc(name: &str) {
   }
 }
 
-async fn pause_pid(pid: i32) {
+async fn pause_pid(pid: i32) -> bool {
+  let mut added_pid = false;
   if let Ok(mut proc_pids) = PAUSED_PROC_PIDS.lock() {
     if proc_pids.is_none() {
       *proc_pids = Some(vec![]);
     }
     *proc_pids = if let Some(mut proc_pids) = proc_pids.take() {
-      dump_error_and_ret!(
+      dump_error!(
         nix::sys::signal::kill(
           nix::unistd::Pid::from_raw(pid), nix::sys::signal::Signal::SIGSTOP
         )
       );
-      proc_pids.push(pid);
+      if ! proc_pids.contains(&pid) {
+        proc_pids.push(pid);
+        added_pid = true;
+      }
 
       Some(proc_pids)
     } else { None };
   }
+  return added_pid;
 }
 
 async fn unpause_pid(pid: i32) {
