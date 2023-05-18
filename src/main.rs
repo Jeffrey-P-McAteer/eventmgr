@@ -164,8 +164,8 @@ async fn handle_sway_msgs() {
       match event {
         swayipc_async::Event::Window(window_evt) => {
           if window_evt.change == swayipc_async::WindowChange::Focus {
-            let name = window_evt.container.name.unwrap_or("".to_string());
-            on_window_focus(&name).await;
+            let name = window_evt.container.name.clone().unwrap_or("".to_string());
+            on_window_focus(&name, &window_evt.container).await;
           }
         }
         swayipc_async::Event::Workspace(workspace_evt) => {
@@ -203,21 +203,36 @@ async fn set_sway_wallpaper<T: AsRef<str>>(wallpaper: T) {
 }
 
 
-async fn on_window_focus(window_name: &str) {
+static UTC_S_LAST_SEEN_FS_TEAM_FORTRESS: once_cell::sync::Lazy<std::sync::atomic::AtomicUsize> = once_cell::sync::Lazy::new(||
+  std::sync::atomic::AtomicUsize::new(0)
+);
+
+async fn on_window_focus(window_name: &str, sway_node: &swayipc_async::Node) {
   println!("Window focused = {:?}", window_name );
 
   let lower_window = window_name.to_lowercase();
-  if lower_window.contains("team fortress") && lower_window.contains("opengl") {
+  if lower_window.contains("team fortress") && lower_window.contains("opengl") && sway_node.fullscreen_mode.unwrap_or(0) >= 1 {
     on_wanted_cpu_level(CPU_GOV_PERFORMANCE).await;
     unpause_proc("hl2_linux").await;
-  }
-  else if lower_window.contains("mozilla firefox") {
-    on_wanted_cpu_level(CPU_GOV_ONDEMAND).await;
-    pause_proc("hl2_linux").await;
+    UTC_S_LAST_SEEN_FS_TEAM_FORTRESS.store(
+      std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("Time travel!").as_secs() as usize,
+      std::sync::atomic::Ordering::Relaxed
+    );
   }
   else {
-    on_wanted_cpu_level(CPU_GOV_ONDEMAND).await;
-    pause_proc("hl2_linux").await;
+    if lower_window.contains("mozilla firefox") {
+      on_wanted_cpu_level(CPU_GOV_ONDEMAND).await; // todo possibly a custom per-browser ask
+    }
+    else {
+      on_wanted_cpu_level(CPU_GOV_ONDEMAND).await;
+    }
+
+    // Only pause IF we've seen team fortress fullscreen in the last 15 minutes / 900s
+    let seconds_since_saw_tf2_fs = (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("Time travel!").as_secs() as usize) - UTC_S_LAST_SEEN_FS_TEAM_FORTRESS.load(std::sync::atomic::Ordering::Relaxed);
+    if seconds_since_saw_tf2_fs < 900 {
+      pause_proc("hl2_linux").await;
+    }
+
   }
 
 
@@ -275,8 +290,8 @@ async fn handle_socket_msgs() {
 }
 
 
-pub const DOWNLOAD_QUARANTINE_SECS: u64 = (24 + 12) * 60 * 60;
-pub const QUARANTINE_DELETE_SECS: u64 = 3 * 24 * 60 * 60;
+pub const DOWNLOAD_QUARANTINE_SECS: u64 = (24 + 12) * (60 * 60);
+pub const QUARANTINE_DELETE_SECS: u64 = (3 * 24) * (60 * 60);
 
 async fn poll_downloads() {
   let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
@@ -287,6 +302,7 @@ async fn poll_downloads() {
       dump_error_and_ret!( tokio::fs::create_dir_all("/j/downloads/q").await );
     }
 
+    // First quarantine downloads
     let mut entries = dump_error_and_ret!( tokio::fs::read_dir("/j/downloads").await );
     while let Some(entry) = dump_error_and_ret!( entries.next_entry().await ) {
       if entry.file_name() == "q" || entry.file_name() == "s" {
@@ -327,8 +343,27 @@ async fn poll_downloads() {
           }
         }
       }
-      
     }
+
+    // Next Unzip .zip files
+    let mut entries = dump_error_and_ret!( tokio::fs::read_dir("/j/downloads").await );
+    while let Some(entry) = dump_error_and_ret!( entries.next_entry().await ) {
+      let fname = entry.file_name();
+      let fname = fname.to_string_lossy();
+      if fname.to_lowercase().ends_with(".zip") {
+        // See if dir exists
+        let unzip_dir = std::path::Path::new("/j/downloads").join( fname.replace(".zip", "") );
+        if !unzip_dir.exists() {
+          // Unzip it!
+
+          //notify(format!("Unzipping {:?} to {:?}", entry.path(), unzip_dir).as_str()).await;
+
+
+        }
+      }
+    }
+
+
 
   }
 }
