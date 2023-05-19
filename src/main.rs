@@ -34,16 +34,17 @@ async fn eventmgr() {
   notify("Beginning eventmgr event loop...").await;
 
   let mut tasks = vec![
-    PersistentAsyncTask::new("handle_exit_signals",            ||{ tokio::task::spawn(handle_exit_signals()) }),
-    PersistentAsyncTask::new("handle_sway_msgs",               ||{ tokio::task::spawn(handle_sway_msgs()) }),
-    PersistentAsyncTask::new("handle_socket_msgs",             ||{ tokio::task::spawn(handle_socket_msgs()) }),
-    PersistentAsyncTask::new("poll_downloads",                 ||{ tokio::task::spawn(poll_downloads()) }),
-    PersistentAsyncTask::new("poll_ff_bookmarks",              ||{ tokio::task::spawn(poll_ff_bookmarks()) }),
-    PersistentAsyncTask::new("poll_wallpaper_rotation",        ||{ tokio::task::spawn(poll_wallpaper_rotation()) }),
-    PersistentAsyncTask::new("poll_check_dexcom",              ||{ tokio::task::spawn(poll_check_dexcom()) }),
-    PersistentAsyncTask::new("mount_disks",                    ||{ tokio::task::spawn(mount_disks()) }),
-    PersistentAsyncTask::new("bump_cpu_for_performance_procs", ||{ tokio::task::spawn(bump_cpu_for_performance_procs()) }),
-    PersistentAsyncTask::new("partial_resume_paused_procs",    ||{ tokio::task::spawn(partial_resume_paused_procs()) }),
+    PersistentAsyncTask::new("handle_exit_signals",              ||{ tokio::task::spawn(handle_exit_signals()) }),
+    PersistentAsyncTask::new("handle_sway_msgs",                 ||{ tokio::task::spawn(handle_sway_msgs()) }),
+    PersistentAsyncTask::new("poll_pulse_device_audio_playback", ||{ tokio::task::spawn(poll_pulse_device_audio_playback()) }),
+    PersistentAsyncTask::new("handle_socket_msgs",               ||{ tokio::task::spawn(handle_socket_msgs()) }),
+    PersistentAsyncTask::new("poll_downloads",                   ||{ tokio::task::spawn(poll_downloads()) }),
+    PersistentAsyncTask::new("poll_ff_bookmarks",                ||{ tokio::task::spawn(poll_ff_bookmarks()) }),
+    PersistentAsyncTask::new("poll_wallpaper_rotation",          ||{ tokio::task::spawn(poll_wallpaper_rotation()) }),
+    PersistentAsyncTask::new("poll_check_dexcom",                ||{ tokio::task::spawn(poll_check_dexcom()) }),
+    PersistentAsyncTask::new("mount_disks",                      ||{ tokio::task::spawn(mount_disks()) }),
+    PersistentAsyncTask::new("bump_cpu_for_performance_procs",   ||{ tokio::task::spawn(bump_cpu_for_performance_procs()) }),
+    PersistentAsyncTask::new("partial_resume_paused_procs",      ||{ tokio::task::spawn(partial_resume_paused_procs()) }),
   ];
 
   // We check for failed tasks and re-start them every 6 seconds
@@ -237,6 +238,41 @@ async fn on_window_focus(window_name: &str, sway_node: &swayipc_async::Node) {
 
 
 }
+
+
+static CURRENTLY_PLAYING_AUDIO: once_cell::sync::Lazy<std::sync::atomic::AtomicBool> = once_cell::sync::Lazy::new(||
+  std::sync::atomic::AtomicBool::new(false)
+);
+
+async fn poll_pulse_device_audio_playback() {
+  use pulsectl::controllers::DeviceControl;
+
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(2));
+  loop {
+    interval.tick().await;
+
+    // TODO set PULSE_SERVER or something
+
+    if let Ok(mut handler) = pulsectl::controllers::SinkController::create() {
+      match handler.list_devices() {
+        Ok(devices) => {
+          for device in devices {
+            println!("device = {:?}", device);
+            notify(format!("device = {:?}", device).as_str());
+          }
+        }
+        Err(e) => {
+          eprintln!("e={:?}", e);
+        }
+      }
+    }
+
+    CURRENTLY_PLAYING_AUDIO.store(false, std::sync::atomic::Ordering::Relaxed);
+
+  }
+
+}
+
 
 async fn on_workspace_focus(workspace_name: &str) {
   println!("Workspace focused = {:?}", workspace_name );
