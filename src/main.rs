@@ -211,7 +211,7 @@ async fn on_window_focus(window_name: &str, sway_node: &swayipc_async::Node) {
   println!("Window focused = {:?}", window_name );
 
   let lower_window = window_name.to_lowercase();
-  if lower_window.contains("team fortress") && lower_window.contains("opengl") && sway_node.fullscreen_mode.unwrap_or(0) >= 1 {
+  if lower_window.contains("team fortress") && lower_window.contains("opengl") {
     on_wanted_cpu_level(CPU_GOV_PERFORMANCE).await;
     unpause_proc("hl2_linux").await;
     UTC_S_LAST_SEEN_FS_TEAM_FORTRESS.store(
