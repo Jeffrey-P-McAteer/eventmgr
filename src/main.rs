@@ -258,7 +258,7 @@ async fn poll_pulse_device_audio_playback() {
         Ok(devices) => {
           for device in devices {
             println!("device = {:?}", device);
-            notify(format!("device = {:?}", device).as_str());
+            
           }
         }
         Err(e) => {
