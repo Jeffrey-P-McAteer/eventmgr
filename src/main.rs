@@ -491,15 +491,23 @@ async fn poll_check_dexcom() {
 
 
 
-static MOUNT_DISKS: phf::Map<&'static str, (&'static str, &'static str) > = phf::phf_map! {
+static MOUNT_DISKS: phf::Map<&'static str, &[(&'static str, &'static str)] > = phf::phf_map! {
   "/dev/disk/by-partuuid/53da446a-2409-ca42-8337-12389dc70563" => 
-    ("/mnt/scratch", "auto,rw,noatime,data=writeback,barrier=0,nobh,errors=remount-ro"),
+    &[("/mnt/scratch", "auto,rw,noatime,data=writeback,barrier=0,nobh,errors=remount-ro")],
 
   "/dev/disk/by-partuuid/435cfadf-6a6e-4acf-a784-ab3f792ee8c6" => 
-    ("/mnt/wda", "auto,rw"),
+    &[("/mnt/wda", "auto,rw")],
 
   "/dev/disk/by-partuuid/ee209a96-9170-534a-9ba2-ea0a34ac156e" => 
-    ("/mnt/wdb", "auto,rw"),
+    &[("/mnt/wdb", "auto,rw")],
+
+  // Not a block device, but we special-case any "options string with space chars"
+  // and run the value in a root /bin/sh -c shell to allow 3rd-party utilities like ifuse to handle mounting.
+  "/sys/class/power_supply/apple_mfi_fastcharge" =>
+    &[
+      ("/mnt/iphone-root", "ifuse -o allow_other,rw /mnt/iphone-root"),
+      ("/mnt/iphone-vox",  "ifuse --documents com.coppertino.VoxMobile -o allow_other,rw /mnt/iphone-vox")
+    ],
 
 };
 
@@ -509,52 +517,64 @@ async fn mount_disks() {
   loop {
     interval.tick().await;
 
-    for (disk_block_device, (disk_mount_path, disk_mount_opts)) in MOUNT_DISKS.entries() {
-      if std::path::Path::new(disk_block_device).exists() {
-        if ! is_mounted(disk_mount_path).await {
-          if ! std::path::Path::new(disk_mount_path).exists() {
-            // Sudo create it, set ownership to jeffrey
+    for (disk_block_device, disk_mount_items) in MOUNT_DISKS.entries() {
+      for (disk_mount_path, disk_mount_opts) in disk_mount_items.iter() {
+        if std::path::Path::new(disk_block_device).exists() {
+          if ! is_mounted(disk_mount_path).await {
+            if ! std::path::Path::new(disk_mount_path).exists() {
+              // Sudo create it, set ownership to jeffrey
+              dump_error_and_ret!(
+                tokio::process::Command::new("sudo")
+                  .args(&["-n", "mkdir", "-p", disk_mount_path])
+                  .status()
+                  .await
+              );
+              dump_error_and_ret!(
+                tokio::process::Command::new("sudo")
+                  .args(&["-n", "chown", "jeffrey", disk_mount_path])
+                  .status()
+                  .await
+              );
+            }
+
+            // If there are space chars in disk_mount_opts run as a command, else pass to "mount"
+            if disk_mount_opts.contains(" ") {
+              dump_error_and_ret!(
+                tokio::process::Command::new("sudo")
+                  .args(&["-n", "sh", "-c", disk_mount_opts])
+                  .status()
+                  .await
+              );
+            }
+            else {
+              dump_error_and_ret!(
+                tokio::process::Command::new("sudo")
+                  .args(&["-n", "mount", "-o", disk_mount_opts, disk_block_device, disk_mount_path])
+                  .status()
+                  .await
+              );
+            }
+
+          }
+        }
+        else {
+          // Block device does NOT exist, remove mountpoint if it exists!
+          if std::path::Path::new(disk_mount_path).exists() {
             dump_error_and_ret!(
               tokio::process::Command::new("sudo")
-                .args(&["-n", "mkdir", "-p", disk_mount_path])
+                .args(&["-n", "umount", disk_mount_path])
                 .status()
                 .await
             );
             dump_error_and_ret!(
               tokio::process::Command::new("sudo")
-                .args(&["-n", "chown", "jeffrey", disk_mount_path])
+                .args(&["-n", "rmdir", disk_mount_path])
                 .status()
                 .await
             );
           }
-
-          dump_error_and_ret!(
-            tokio::process::Command::new("sudo")
-              .args(&["-n", "mount", "-o", disk_mount_opts, disk_block_device, disk_mount_path])
-              .status()
-              .await
-          );
-
         }
       }
-      else {
-        // Block device does NOT exist, remove mountpoint if it exists!
-        if std::path::Path::new(disk_mount_path).exists() {
-          dump_error_and_ret!(
-            tokio::process::Command::new("sudo")
-              .args(&["-n", "umount", disk_mount_path])
-              .status()
-              .await
-          );
-          dump_error_and_ret!(
-            tokio::process::Command::new("sudo")
-              .args(&["-n", "rmdir", disk_mount_path])
-              .status()
-              .await
-          );
-        }
-      }
-
     }
   }
 }
@@ -562,7 +582,7 @@ async fn mount_disks() {
 
 
 async fn bump_cpu_for_performance_procs() {
-  let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(1200));
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(1400));
 
   let mut have_high_cpu = false;
   loop {
@@ -591,7 +611,7 @@ async fn bump_cpu_for_performance_procs() {
 
     if want_high_cpu && !have_high_cpu {
       on_wanted_cpu_level(CPU_GOV_PERFORMANCE).await;
-      have_high_cpu = true; // pretend we changed something
+      have_high_cpu = true;
     }
     else if !want_high_cpu && have_high_cpu {
       on_wanted_cpu_level(CPU_GOV_ONDEMAND).await;
