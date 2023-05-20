@@ -199,8 +199,18 @@ static UTC_S_LAST_SEEN_FS_TEAM_FORTRESS: once_cell::sync::Lazy<std::sync::atomic
   std::sync::atomic::AtomicUsize::new(0)
 );
 
+static LAST_FOCUSED_WINDOW_NAME: once_cell::sync::Lazy<tokio::sync::RwLock<String>> = once_cell::sync::Lazy::new(||
+  tokio::sync::RwLock::new( "".to_owned() )
+);
+
 async fn on_window_focus(window_name: &str, sway_node: &swayipc_async::Node) {
   println!("Window focused = {:?}", window_name );
+
+  if let Ok(mut last_focused_window_name) = LAST_FOCUSED_WINDOW_NAME.try_write() {
+    *last_focused_window_name = window_name.to_owned();
+  }
+
+  darken_kbd_if_video_focused_and_audio_playing().await;
 
   let lower_window = window_name.to_lowercase();
   if lower_window.contains("team fortress") && lower_window.contains("opengl") {
@@ -230,6 +240,50 @@ async fn on_window_focus(window_name: &str, sway_node: &swayipc_async::Node) {
 
 }
 
+static CURRENT_KBD_LIGHT_VAL: once_cell::sync::Lazy<std::sync::atomic::AtomicU32> = once_cell::sync::Lazy::new(||
+  std::sync::atomic::AtomicU32::new(5)
+);
+
+async fn darken_kbd_if_video_focused_and_audio_playing() {
+  let currently_playing_audio = CURRENTLY_PLAYING_AUDIO.load(std::sync::atomic::Ordering::Relaxed);
+  if ! currently_playing_audio {
+    set_kbd_light(1).await;
+    return;
+  }
+  // We are playing audio!
+  let focused_win_name = LAST_FOCUSED_WINDOW_NAME.read().await;
+  let focused_win_name = focused_win_name.to_lowercase();
+
+  let is_video = focused_win_name.contains("youtube") ||
+                 focused_win_name.contains("mpv") ||
+                 focused_win_name.contains("youtube");
+
+  if is_video {
+    set_kbd_light(0).await;
+  }
+  else {
+    set_kbd_light(1).await;
+  }
+
+}
+
+async fn set_kbd_light(level: u32) {
+  let current_level = CURRENT_KBD_LIGHT_VAL.load(std::sync::atomic::Ordering::Relaxed);
+  if current_level == level {
+    return;
+  }
+
+  if let Ok(led_devices) = bulbb::misc::LedDevice::get_all_led_devices() {
+    for ld in led_devices {
+      if let Some(bulbb::misc::LedFunction::KbdBacklight) = ld.info.function {
+        dump_error!( ld.set_brightness(level) );
+      }
+    }
+  }
+
+  CURRENT_KBD_LIGHT_VAL.store(level, std::sync::atomic::Ordering::Relaxed);
+
+}
 
 static CURRENTLY_PLAYING_AUDIO: once_cell::sync::Lazy<std::sync::atomic::AtomicBool> = once_cell::sync::Lazy::new(||
   std::sync::atomic::AtomicBool::new(false)
@@ -297,6 +351,8 @@ async fn poll_device_audio_playback() {
         CURRENTLY_PLAYING_AUDIO.store(true, std::sync::atomic::Ordering::Relaxed);
       }
     }).await );
+
+    darken_kbd_if_video_focused_and_audio_playing().await;
 
   }
 
