@@ -36,7 +36,7 @@ async fn eventmgr() {
   let mut tasks = vec![
     PersistentAsyncTask::new("handle_exit_signals",              ||{ tokio::task::spawn(handle_exit_signals()) }),
     PersistentAsyncTask::new("handle_sway_msgs",                 ||{ tokio::task::spawn(handle_sway_msgs()) }),
-    PersistentAsyncTask::new("poll_pulse_device_audio_playback", ||{ tokio::task::spawn(poll_pulse_device_audio_playback()) }),
+    PersistentAsyncTask::new("poll_device_audio_playback",       ||{ tokio::task::spawn(poll_device_audio_playback()) }),
     PersistentAsyncTask::new("handle_socket_msgs",               ||{ tokio::task::spawn(handle_socket_msgs()) }),
     PersistentAsyncTask::new("poll_downloads",                   ||{ tokio::task::spawn(poll_downloads()) }),
     PersistentAsyncTask::new("poll_ff_bookmarks",                ||{ tokio::task::spawn(poll_ff_bookmarks()) }),
@@ -96,28 +96,19 @@ async fn handle_exit_signals() {
     )
   );
   loop {
+    let mut want_shutdown = false;
     tokio::select!{
-      _sig_int = int_stream.recv() => {
-        println!("Got SIGINT, shutting down!");
-
-        // Allow spawned futures to complete...
-        tokio::time::sleep( tokio::time::Duration::from_millis(500) ).await;
-
-        println!("Goodbye!");
-
-        std::process::exit(0);
-      }
-      _sig_term = term_stream.recv() => {
-        println!("Got SIGTERM, shutting down!");
-
-        // Allow spawned futures to complete...
-        tokio::time::sleep( tokio::time::Duration::from_millis(500) ).await;
-
-        println!("Goodbye!");
-
-        std::process::exit(0);
-      }
+      _sig_int = int_stream.recv() => { want_shutdown = true; }
+      _sig_term = term_stream.recv() => { want_shutdown = true; }
     };
+    if want_shutdown {
+      println!("Got SIG{{TERM/INT}}, shutting down!");
+      unpause_all_paused_pids().await;
+      // Allow spawned futures to complete...
+      tokio::time::sleep( tokio::time::Duration::from_millis(500) ).await;
+      println!("Goodbye!");
+      std::process::exit(0);
+    }
   }
 }
 
@@ -244,30 +235,68 @@ static CURRENTLY_PLAYING_AUDIO: once_cell::sync::Lazy<std::sync::atomic::AtomicB
   std::sync::atomic::AtomicBool::new(false)
 );
 
-async fn poll_pulse_device_audio_playback() {
-  use pulsectl::controllers::DeviceControl;
+async fn poll_device_audio_playback() {
+  use alsa::pcm::*;
+  use alsa::{Direction, ValueOr, Error};
 
-  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(2));
+  // Ensure pulse can connect!
+  if ! std::env::var("DBUS_SESSION_BUS_ADDRESS").is_ok() {
+    std::env::set_var("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/1000/bus");
+  }
+
+  if ! std::env::var("XDG_RUNTIME_DIR").is_ok() { // Just guessing here
+    std::env::set_var("XDG_RUNTIME_DIR", "/run/user/1000");
+  }
+
+
+  // Calculates RMS (root mean square) as a way to determine volume
+  fn rms(buf: &[i16]) -> f64 {
+      if buf.len() == 0 { return 0f64; }
+      let mut sum = 0f64;
+      for &x in buf {
+          sum += (x as f64) * (x as f64);
+      }
+      let r = (sum / (buf.len() as f64)).sqrt();
+      // Convert value to decibels
+      20.0 * (r / (i16::MAX as f64)).log10()
+  }
+  
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3));
+
+  interval.tick().await; // Wait 1 tick before recording
+
   loop {
     interval.tick().await;
 
-    // TODO set PULSE_SERVER or something
-
-    if let Ok(mut handler) = pulsectl::controllers::SinkController::create() {
-      match handler.list_devices() {
-        Ok(devices) => {
-          for device in devices {
-            println!("device = {:?}", device);
-            
-          }
-        }
-        Err(e) => {
-          eprintln!("e={:?}", e);
-        }
+    dump_error_and_ret!( tokio::task::spawn_blocking(move || {
+      // New connection each poll, why not?
+      let pcm = dump_error_and_ret!( PCM::new("default", Direction::Capture, false) );
+      {
+          // For this example, we assume 44100Hz, one channel, 16 bit audio.
+          let hwp = dump_error_and_ret!( HwParams::any(&pcm) );
+          dump_error_and_ret!( hwp.set_channels(1) );
+          dump_error_and_ret!( hwp.set_rate(44100, ValueOr::Nearest) );
+          dump_error_and_ret!( hwp.set_format(Format::s16()) );
+          dump_error_and_ret!( hwp.set_access(Access::RWInterleaved) );
+          dump_error_and_ret!( pcm.hw_params(&hwp) );
       }
-    }
+      dump_error_and_ret!( pcm.start() );
 
-    CURRENTLY_PLAYING_AUDIO.store(false, std::sync::atomic::Ordering::Relaxed);
+      let io_stream = dump_error_and_ret!( pcm.io_i16() );
+      let mut sound_buffer = [0i16; 8192];
+
+      let num_read_bytes = dump_error_and_ret!( io_stream.readi(&mut sound_buffer) );
+      let audio_vol_amount = rms(&sound_buffer[0..num_read_bytes]);
+
+      //println!("audio_vol_amount = {}", audio_vol_amount);
+
+      if audio_vol_amount < -500.0 { // "regular" numbers are around -25.0 or so, so significantly below this (incl -inf) is no audio!
+        CURRENTLY_PLAYING_AUDIO.store(false, std::sync::atomic::Ordering::Relaxed);
+      }
+      else {
+        CURRENTLY_PLAYING_AUDIO.store(true, std::sync::atomic::Ordering::Relaxed);
+      }
+    }).await );
 
   }
 
@@ -690,6 +719,16 @@ async fn pause_pid(pid: i32) -> bool {
   }
 
   return false;
+}
+
+// This is called on sigint / sigterm when we exit so we don't leave paused procs lying around
+async fn unpause_all_paused_pids() {
+  for i in 0..PAUSED_PROC_PIDS.len() {
+    let pid = PAUSED_PROC_PIDS[i].load(std::sync::atomic::Ordering::Relaxed);
+    if pid >= 4 {
+      unpause_pid(pid).await;
+    }
+  }
 }
 
 async fn unpause_pid(pid: i32) {
