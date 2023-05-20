@@ -28,9 +28,9 @@ pub fn event_client(args: &Vec<String>) {
 // ddcutil brightness ranges.
 pub static BRIGHTNESS_DDCUTIL_MAP: &[((u32, u32), (u32, u32))] = &[
   ((0, 450),     (1, 1)),
-  ((450, 2000),  (1, 10)),
-  ((2000, 5000), (10, 50)),
-  ((5000, 25000), (50, 100)),
+  ((450, 2000),  (1, 8)),
+  ((2000, 5000), (8, 30)),
+  ((5000, 25000), (30, 100)),
 ];
 
 
@@ -204,7 +204,7 @@ Restart=always
 RestartSec=1
 User=jeffrey
 ExecStart={exe}
-RuntimeMaxSec=90m
+RuntimeMaxSec=180m
 
 [Install]
 WantedBy=multi-user.target
