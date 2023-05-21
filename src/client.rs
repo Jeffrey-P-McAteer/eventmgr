@@ -206,6 +206,12 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
         .args(&["-i", "/tmp/lock-screen-blurred.png"])
         .status()
     );
+    // Ensure screen is turned back on if idle for a long time
+    dump_error!(
+      std::process::Command::new("swaymsg")
+        .args(&["output * dpms on"])
+        .status()
+    );
     return true;
   }
 
