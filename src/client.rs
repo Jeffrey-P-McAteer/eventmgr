@@ -187,6 +187,29 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
   }
 
 
+  if args.contains(&"do-lock".to_string()) {
+    // Take screenshot + blur it
+    dump_error!(
+      std::process::Command::new("grim")
+        .args(&["-g", "0,0 1920x1080", "-l", "1", "/tmp/lock-screen.png"])
+        .status()
+    );
+    // See https://stackoverflow.com/questions/35649413/imagemagick-looking-for-a-fast-way-to-blur-an-image
+    dump_error!(
+      std::process::Command::new("convert")
+        .args(&["-scale", "10%", "-blur", "0x1.1", "-resize", "1000%", "/tmp/lock-screen.png", "/tmp/lock-screen-blurred.png"])
+        .status()
+    );
+    // Lock screen
+    dump_error!(
+      std::process::Command::new("swaylock")
+        .args(&["-i", "/tmp/lock-screen-blurred.png"])
+        .status()
+    );
+    return true;
+  }
+
+
   return false;
 }
 
