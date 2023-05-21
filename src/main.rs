@@ -206,7 +206,8 @@ static LAST_FOCUSED_WINDOW_NAME: once_cell::sync::Lazy<tokio::sync::RwLock<Strin
 async fn on_window_focus(window_name: &str, sway_node: &swayipc_async::Node) {
   println!("Window focused = {:?}", window_name );
 
-  if let Ok(mut last_focused_window_name) = LAST_FOCUSED_WINDOW_NAME.try_write() {
+  {
+    let mut last_focused_window_name = LAST_FOCUSED_WINDOW_NAME.write().await;
     *last_focused_window_name = window_name.to_owned();
   }
 
@@ -245,7 +246,7 @@ static CURRENT_KBD_LIGHT_VAL: once_cell::sync::Lazy<std::sync::atomic::AtomicU32
 );
 
 async fn darken_kbd_if_video_focused_and_audio_playing() {
-  let currently_playing_audio = CURRENTLY_PLAYING_AUDIO.load(std::sync::atomic::Ordering::Relaxed);
+  let currently_playing_audio = CURRENTLY_PLAYING_AUDIO.load(std::sync::atomic::Ordering::SeqCst);
   if ! currently_playing_audio {
     set_kbd_light(1).await;
     return;
@@ -345,10 +346,10 @@ async fn poll_device_audio_playback() {
       //println!("audio_vol_amount = {}", audio_vol_amount);
 
       if audio_vol_amount < -500.0 { // "regular" numbers are around -25.0 or so, so significantly below this (incl -inf) is no audio!
-        CURRENTLY_PLAYING_AUDIO.store(false, std::sync::atomic::Ordering::Relaxed);
+        CURRENTLY_PLAYING_AUDIO.store(false, std::sync::atomic::Ordering::SeqCst);
       }
       else {
-        CURRENTLY_PLAYING_AUDIO.store(true, std::sync::atomic::Ordering::Relaxed);
+        CURRENTLY_PLAYING_AUDIO.store(true, std::sync::atomic::Ordering::SeqCst);
       }
     }).await );
 
