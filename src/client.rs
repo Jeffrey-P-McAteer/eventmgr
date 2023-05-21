@@ -203,7 +203,11 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
     // Lock screen
     dump_error!(
       std::process::Command::new("swaylock")
-        .args(&["-i", "/tmp/lock-screen-blurred.png"])
+        .args(&[
+          "-i", "/tmp/lock-screen-blurred.png",
+          "--indicator-radius", "120",
+          
+        ])
         .status()
     );
     // Ensure screen is turned back on if idle for a long time
