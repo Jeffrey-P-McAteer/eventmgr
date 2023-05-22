@@ -476,7 +476,7 @@ async fn poll_downloads() {
     while let Some(entry) = dump_error_and_ret!( entries.next_entry().await ) {
       let fname = entry.file_name();
       let fname = fname.to_string_lossy();
-      if fname.to_lowercase().ends_with(".zip") {
+      if fname.to_lowercase().ends_with(".zip") && dump_error_and_ret!( entry.path().metadata() ).len() > 2 {
         // See if dir exists
         let unzip_dir = std::path::Path::new("/j/downloads").join( fname.replace(".zip", "") );
         if !unzip_dir.exists() {
