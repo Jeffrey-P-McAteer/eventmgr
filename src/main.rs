@@ -1,6 +1,10 @@
 
 use futures::prelude::*;
 
+use std::borrow::Borrow;
+
+
+
 pub const SERVER_SOCKET: &'static str = "/tmp/eventmgr.sock";
 
 pub mod structs;
@@ -478,8 +482,21 @@ async fn poll_downloads() {
         if !unzip_dir.exists() {
           // Unzip it!
 
-          //notify(format!("Unzipping {:?} to {:?}", entry.path(), unzip_dir).as_str()).await;
+          notify(format!("Unzipping {:?} to {:?}", entry.path(), unzip_dir).as_str()).await;
 
+          dump_error_and_ret!(
+            tokio::process::Command::new("mkdir")
+              .args(&["-p", unzip_dir.to_string_lossy().borrow() ])
+              .status()
+              .await
+          );
+
+          dump_error_and_ret!(
+            tokio::process::Command::new("unzip")
+              .args(&[entry.path().to_string_lossy().borrow(), "-d", unzip_dir.to_string_lossy().borrow() ])
+              .status()
+              .await
+          );
 
         }
       }
