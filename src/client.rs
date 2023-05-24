@@ -200,6 +200,12 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
         .args(&["-scale", "10%", "-blur", "0x1.1", "-resize", "1000%", "/tmp/lock-screen.png", "/tmp/lock-screen-blurred.png"])
         .status()
     );
+    // Set CPU low
+    dump_error!(
+      std::process::Command::new("sudo")
+        .args(&["cpupower", "frequency-set", "-g", crate::CPU_GOV_POWERSAVE ])
+        .status()
+    );
     // Lock screen
     dump_error!(
       std::process::Command::new("swaylock")

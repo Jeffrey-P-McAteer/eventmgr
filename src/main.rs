@@ -908,13 +908,13 @@ async fn set_cpu(governor: &str) {
 }
 
 // Trait lifetime gymnastics want &'static lifetimes, we'll give them &'static lifetimes!
-static CPU_GOV_CONSERVATIVE : &'static str = "conservative";
-static CPU_GOV_ONDEMAND     : &'static str = "ondemand";
-static CPU_GOV_USERSPACE    : &'static str = "userspace";
-static CPU_GOV_POWERSAVE    : &'static str = "powersave";
-static CPU_GOV_PERFORMANCE  : &'static str = "performance";
-static CPU_GOV_SCHEDUTIL    : &'static str = "schedutil";
-static CPU_GOV_UNK          : &'static str = "UNK";
+pub static CPU_GOV_CONSERVATIVE : &'static str = "conservative";
+pub static CPU_GOV_ONDEMAND     : &'static str = "ondemand";
+pub static CPU_GOV_USERSPACE    : &'static str = "userspace";
+pub static CPU_GOV_POWERSAVE    : &'static str = "powersave";
+pub static CPU_GOV_PERFORMANCE  : &'static str = "performance";
+pub static CPU_GOV_SCHEDUTIL    : &'static str = "schedutil";
+pub static CPU_GOV_UNK          : &'static str = "UNK";
 
 async fn get_cpu() -> &'static str {
   if let Ok(contents) = tokio::fs::read_to_string("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor").await {
