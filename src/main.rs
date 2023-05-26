@@ -889,6 +889,19 @@ async fn partial_resume_paused_procs() {
 
 
 
+async fn get_mount_pt_of(device_path: &str) -> Option<std::path::PathBuf> {
+  if let Ok(device_path) = tokio::fs::canonicalize(device_path).await {
+    if let Ok(info) = mountinfo::MountInfo::new() {
+      for mount_pt in info.mounting_points {
+        //println!("mount_pt={:?}", mount_pt);
+        if std::path::PathBuf::from(mount_pt.what) == device_path {
+          return Some(mount_pt.path);
+        }
+      }
+    }
+  }
+  return None;
+}
 
 async fn is_mounted(directory_path: &str) -> bool {
   if let Ok(info) = mountinfo::MountInfo::new() {
