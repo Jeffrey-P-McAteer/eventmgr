@@ -49,6 +49,7 @@ async fn eventmgr() {
     PersistentAsyncTask::new("mount_disks",                      ||{ tokio::task::spawn(mount_disks()) }),
     PersistentAsyncTask::new("bump_cpu_for_performance_procs",   ||{ tokio::task::spawn(bump_cpu_for_performance_procs()) }),
     PersistentAsyncTask::new("partial_resume_paused_procs",      ||{ tokio::task::spawn(partial_resume_paused_procs()) }),
+    //PersistentAsyncTask::new("bind_mount_azure_data",            ||{ tokio::task::spawn(bind_mount_azure_data()) }),
   ];
 
   // We check for failed tasks and re-start them every 6 seconds
@@ -71,7 +72,7 @@ async fn notify(msg: &str) {
       .summary("EventMgr")
       .body(msg)
       //.icon("firefox")
-      .timeout(notify_rust::Timeout::Milliseconds(6000)) //milliseconds
+      .timeout(notify_rust::Timeout::Milliseconds(6400)) //milliseconds
       .show()
   );
 }
@@ -83,7 +84,7 @@ fn notify_sync(msg: &str) {
       .summary("EventMgr")
       .body(msg)
       //.icon("firefox")
-      .timeout(notify_rust::Timeout::Milliseconds(6000)) //milliseconds
+      .timeout(notify_rust::Timeout::Milliseconds(6400)) //milliseconds
       .show()
   );
 }
@@ -593,8 +594,101 @@ async fn poll_check_dexcom() {
 
 
 
+async fn bind_mount_azure_data() {
+  let azure_data_block_dev = std::path::Path::new("/dev/disk/by-partuuid/8f3ca68c-d031-2d41-849c-be5d9602e920");
+  let azure_data_mount = std::path::Path::new("/mnt/azure-data");
+
+  let data_mount_points = &[
+    // root FS path, relative to azure_data_mount path
+    ("/var/cache/pacman/pkg/", "azure_sys/var_cache_pacman_pkg"),
+    ("/j/.cache/mozilla/firefox", "azure_sys/j_.cache_mozilla_firefox"), // The only folder in here should be jeff_2023, corresponding to the PROFILE under .mozilla which must never be removed.
+
+  ];
+
+  // n == neither, d == data mounted, t == tmpfs mounted
+  let mut data_mount_points_mounted = 'n';
+
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(6));
+
+  interval.tick().await; // wait one tick so we can fail early below w/o a hugely infinite loop
+
+  // Firstly; iterate all system directories and delete child contents
+  for (root_fs_dir, data_mnt_path) in data_mount_points.iter() {
+    // If root_fs_dir is mounted, unmount it.
+    if is_mounted(root_fs_dir).await {
+      dump_error_and_ret!(
+        tokio::process::Command::new("sudo")
+          .args(&["-n", "umount", root_fs_dir])
+          .status()
+          .await
+      );
+    }
+
+    // Now is it mounted?
+    if is_mounted(root_fs_dir).await {
+      continue; // Do not rm -rf files if they are mounted, just ignore for now.
+    }
+
+    // After un-mounting, delete everything! This is a cache folder!
+    let mut root_fs_dir_o = dump_error_and_ret!( tokio::fs::read_dir(root_fs_dir).await );
+    while let Some(child) = dump_error_and_ret!( root_fs_dir_o.next_entry().await ) {
+      if child.file_name() == "." || child.file_name() == ".." { // Jeff this doesn't happen and you know it -_-
+        continue;
+      }
+      // Remove it!
+      if child.path().is_dir() {
+        dump_error!( std::fs::remove_dir_all( child.path() ) );
+      }
+      else {
+        dump_error!( std::fs::remove_file( child.path() ) );
+      }
+    }
+
+  }
+
+  // dump_error_and_ret!();
+
+  loop {
+    interval.tick().await;
+    
+    // If the block device exists & we have not mounted to it, do that.
+    if azure_data_block_dev.exists() && azure_data_mount.exists() && data_mount_points_mounted != 'd' {
+      // bind-mount all folders in data_mount_points
+      for (root_fs_dir, data_mnt_path) in data_mount_points.iter() {
+        //let data_mnt_path = azure_data_mount.
+      }
+
+      data_mount_points_mounted = 'd';
+      notify(format!("Mounted {} system caches to azure-data", data_mount_points.len() ).as_str()).await;
+    }
+    else if azure_data_block_dev.exists() && !azure_data_mount.exists() {
+      // We are waiting for other future to mount disk, do nothing.
+    }
+    else if !azure_data_block_dev.exists() && data_mount_points_mounted != 't' {
+      // Disk was unplugged! Un-mount the bind mounts and replace w/ tmpfs mounts
+      for (root_fs_dir, data_mnt_path) in data_mount_points.iter() {
+        //let data_mnt_path = azure_data_mount.
+      }
+
+      for (root_fs_dir, data_mnt_path) in data_mount_points.iter() {
+        //let data_mnt_path = azure_data_mount.
+      }
+
+
+      data_mount_points_mounted = 't';
+      notify(format!("Mounted {} system caches to TMPFS", data_mount_points.len() ).as_str()).await;
+    }
+
+  }
+}
+
+
 
 static MOUNT_DISKS: phf::Map<&'static str, &[(&'static str, &'static str)] > = phf::phf_map! {
+  "/dev/disk/by-partuuid/8f3ca68c-d031-2d41-849c-be5d9602e920" => 
+    &[("/mnt/azure-data", "defaults,rw,autodefrag,compress=zstd:11,commit=300,norecovery,nodatasum")],
+    // ^^ compress=lzo is fast w/o huge compression ratios, zstd:9 is slower with better ratio. high commit seconds means disk writes are less common.
+
   "/dev/disk/by-partuuid/53da446a-2409-ca42-8337-12389dc70563" => 
     &[("/mnt/scratch", "auto,rw,noatime,data=writeback,barrier=0,nobh,errors=remount-ro")],
 
