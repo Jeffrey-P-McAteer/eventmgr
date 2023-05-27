@@ -761,20 +761,22 @@ async fn mount_disks() {
         if std::path::Path::new(disk_block_device).exists() {
           if ! is_mounted(disk_mount_path).await {
             if ! std::path::Path::new(disk_mount_path).exists() {
-              // Sudo create it, set ownership to jeffrey
+              // Sudo create it
               dump_error_and_ret!(
                 tokio::process::Command::new("sudo")
                   .args(&["-n", "mkdir", "-p", disk_mount_path])
                   .status()
                   .await
               );
-              dump_error_and_ret!(
-                tokio::process::Command::new("sudo")
-                  .args(&["-n", "chown", "jeffrey", disk_mount_path])
-                  .status()
-                  .await
-              );
             }
+
+            // Even if path previously exists, ensure jeffrey owns it
+            dump_error_and_ret!(
+              tokio::process::Command::new("sudo")
+                .args(&["-n", "chown", "jeffrey", disk_mount_path])
+                .status()
+                .await
+            );
 
             // If there are space chars in disk_mount_opts run as a command, else pass to "mount"
             if disk_mount_opts.contains(" ") {
