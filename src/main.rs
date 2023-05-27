@@ -602,9 +602,13 @@ async fn bind_mount_azure_data() {
   let data_mount_points = &[
     // root FS path, relative to azure_data_mount path
     ("/var/cache/pacman/pkg",     "azure_sys/var_cache_pacman_pkg"),
-    //("/j/.cache/mozilla/firefox", "azure_sys/j_.cache_mozilla_firefox"), // The only folder in here should be jeff_2023, corresponding to the PROFILE under .mozilla which must never be removed.
+    ("/j/.cache/mozilla/firefox", "azure_sys/j_.cache_mozilla_firefox"), // The only folder in here should be jeff_2023, corresponding to the PROFILE under .mozilla which must never be removed.
     ("/j/downloads",              "azure_sys/j_downloads"),
 
+  ];
+
+  let build_dir_scan_folders = &[
+    "/j/proj", // TODO
   ];
 
   // n == neither, d == data mounted, t == tmpfs mounted
