@@ -71,9 +71,14 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
         }
 
         println!("new_brightness={}", new_brightness);
-        dump_error!(
-          monitor.set_brightness(new_brightness)
-        );
+        if let Err(e) = monitor.set_brightness(new_brightness) {
+          println!("Error setting brightness: {:?}", e);
+          dump_error!( // Give everyone write access
+            std::process::Command::new("sudo")
+              .args(&["sh", "-c", "chmod a+rw /sys/class/backlight/intel_backlight/*"])
+              .status()
+          );
+        }
 
         for ((begin_b, end_b), (ddc_begin_b, ddc_end_b)) in BRIGHTNESS_DDCUTIL_MAP {
           if new_brightness >= *begin_b && new_brightness <= *end_b {

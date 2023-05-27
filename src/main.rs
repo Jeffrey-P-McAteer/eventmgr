@@ -49,7 +49,7 @@ async fn eventmgr() {
     PersistentAsyncTask::new("mount_disks",                      ||{ tokio::task::spawn(mount_disks()) }),
     PersistentAsyncTask::new("bump_cpu_for_performance_procs",   ||{ tokio::task::spawn(bump_cpu_for_performance_procs()) }),
     PersistentAsyncTask::new("partial_resume_paused_procs",      ||{ tokio::task::spawn(partial_resume_paused_procs()) }),
-    //PersistentAsyncTask::new("bind_mount_azure_data",            ||{ tokio::task::spawn(bind_mount_azure_data()) }),
+    PersistentAsyncTask::new("bind_mount_azure_data",            ||{ tokio::task::spawn(bind_mount_azure_data()) }),
   ];
 
   // We check for failed tasks and re-start them every 6 seconds
@@ -600,8 +600,9 @@ async fn bind_mount_azure_data() {
 
   let data_mount_points = &[
     // root FS path, relative to azure_data_mount path
-    ("/var/cache/pacman/pkg/", "azure_sys/var_cache_pacman_pkg"),
+    ("/var/cache/pacman/pkg",     "azure_sys/var_cache_pacman_pkg"),
     ("/j/.cache/mozilla/firefox", "azure_sys/j_.cache_mozilla_firefox"), // The only folder in here should be jeff_2023, corresponding to the PROFILE under .mozilla which must never be removed.
+    ("/j/downloads",              "azure_sys/j_downloads"),
 
   ];
 
