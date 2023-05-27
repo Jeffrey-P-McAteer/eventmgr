@@ -601,7 +601,7 @@ async fn bind_mount_azure_data() {
   let data_mount_points = &[
     // root FS path, relative to azure_data_mount path
     ("/var/cache/pacman/pkg",     "azure_sys/var_cache_pacman_pkg"),
-    ("/j/.cache/mozilla/firefox", "azure_sys/j_.cache_mozilla_firefox"), // The only folder in here should be jeff_2023, corresponding to the PROFILE under .mozilla which must never be removed.
+    //("/j/.cache/mozilla/firefox", "azure_sys/j_.cache_mozilla_firefox"), // The only folder in here should be jeff_2023, corresponding to the PROFILE under .mozilla which must never be removed.
     ("/j/downloads",              "azure_sys/j_downloads"),
 
   ];
@@ -611,7 +611,20 @@ async fn bind_mount_azure_data() {
 
   let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(6));
 
-  interval.tick().await; // wait one tick so we can fail early below w/o a hugely infinite loop
+  loop {
+    interval.tick().await; // wait at least one tick so we can fail early below w/o a hugely infinite loop
+    if azure_data_block_dev.exists() && is_mounted( &azure_data_mount.to_string_lossy() ).await {
+      break;
+    }
+  }
+
+  // Ensure ownership of azure_data_mount
+  dump_error_and_ret!(
+    tokio::process::Command::new("sudo")
+      .args(&["-n", "chown", "jeffrey", &azure_data_mount.to_string_lossy() ])
+      .status()
+      .await
+  );
 
   // Firstly; iterate all system directories and delete child contents
   for (root_fs_dir, data_mnt_path) in data_mount_points.iter() {
@@ -622,6 +635,15 @@ async fn bind_mount_azure_data() {
           .args(&["-n", "umount", root_fs_dir])
           .status()
           .await
+      );
+    }
+
+    // Also create data_mnt_path if ! exists
+    let data_mnt_path = azure_data_mount.join(data_mnt_path);
+    if ! data_mnt_path.exists() {
+      // Create it!
+      dump_error_and_ret!(
+        tokio::fs::create_dir_all(&data_mnt_path).await
       );
     }
 
@@ -647,8 +669,6 @@ async fn bind_mount_azure_data() {
 
   }
 
-  // dump_error_and_ret!();
-
   loop {
     interval.tick().await;
     
@@ -656,7 +676,13 @@ async fn bind_mount_azure_data() {
     if azure_data_block_dev.exists() && azure_data_mount.exists() && data_mount_points_mounted != 'd' {
       // bind-mount all folders in data_mount_points
       for (root_fs_dir, data_mnt_path) in data_mount_points.iter() {
-        //let data_mnt_path = azure_data_mount.
+        let data_mnt_path = azure_data_mount.join(data_mnt_path);
+        dump_error!(
+          tokio::process::Command::new("sudo")
+            .args(&["-n", "mount", "--bind", &data_mnt_path.to_string_lossy(), root_fs_dir ])
+            .status()
+            .await
+        );
       }
 
       data_mount_points_mounted = 'd';
@@ -667,14 +693,24 @@ async fn bind_mount_azure_data() {
     }
     else if !azure_data_block_dev.exists() && data_mount_points_mounted != 't' {
       // Disk was unplugged! Un-mount the bind mounts and replace w/ tmpfs mounts
-      for (root_fs_dir, data_mnt_path) in data_mount_points.iter() {
-        //let data_mnt_path = azure_data_mount.
+      for (root_fs_dir, _data_mnt_path) in data_mount_points.iter() {
+        dump_error!(
+          tokio::process::Command::new("sudo")
+            .args(&["-n", "umount", root_fs_dir])
+            .status()
+            .await
+        );
       }
 
-      for (root_fs_dir, data_mnt_path) in data_mount_points.iter() {
-        //let data_mnt_path = azure_data_mount.
+      // Mount an 8gb tmpfs in its place to avoid allowing data to fall onto host disk
+      for (root_fs_dir, _data_mnt_path) in data_mount_points.iter() {
+        dump_error!(
+          tokio::process::Command::new("sudo")
+            .args(&["-n", "mount", "-t", "tmpfs", "-o", "size=8G",  root_fs_dir ])
+            .status()
+            .await
+        );
       }
-
 
       data_mount_points_mounted = 't';
       notify(format!("Mounted {} system caches to TMPFS", data_mount_points.len() ).as_str()).await;
