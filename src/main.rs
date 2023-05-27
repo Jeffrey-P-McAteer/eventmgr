@@ -597,6 +597,7 @@ async fn poll_check_dexcom() {
 async fn bind_mount_azure_data() {
   let azure_data_block_dev = std::path::Path::new("/dev/disk/by-partuuid/8f3ca68c-d031-2d41-849c-be5d9602e920");
   let azure_data_mount = std::path::Path::new("/mnt/azure-data");
+  let tmp_data_mount = std::path::Path::new("/tmp");
 
   let data_mount_points = &[
     // root FS path, relative to azure_data_mount path
@@ -702,11 +703,12 @@ async fn bind_mount_azure_data() {
         );
       }
 
-      // Mount an 8gb tmpfs in its place to avoid allowing data to fall onto host disk
-      for (root_fs_dir, _data_mnt_path) in data_mount_points.iter() {
+      // Bind-mount our /tmp/ to the folders to avoid data falling on to the root FS
+      for (root_fs_dir, data_mnt_path) in data_mount_points.iter() {
+        let data_mnt_path = tmp_data_mount.join(data_mnt_path);
         dump_error!(
           tokio::process::Command::new("sudo")
-            .args(&["-n", "mount", "-t", "tmpfs", "-o", "size=8G",  root_fs_dir ])
+            .args(&["-n", "mount", "--bind", &data_mnt_path.to_string_lossy(), root_fs_dir  ])
             .status()
             .await
         );
