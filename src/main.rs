@@ -686,7 +686,7 @@ async fn bind_mount_azure_data() {
 
 static MOUNT_DISKS: phf::Map<&'static str, &[(&'static str, &'static str)] > = phf::phf_map! {
   "/dev/disk/by-partuuid/8f3ca68c-d031-2d41-849c-be5d9602e920" => 
-    &[("/mnt/azure-data", "defaults,rw,autodefrag,compress=zstd:11,commit=300,norecovery,nodatasum")],
+    &[("/mnt/azure-data", "defaults,rw,autodefrag,compress=zstd:11,commit=300,nodatasum")],
     // ^^ compress=lzo is fast w/o huge compression ratios, zstd:9 is slower with better ratio. high commit seconds means disk writes are less common.
 
   "/dev/disk/by-partuuid/53da446a-2409-ca42-8337-12389dc70563" => 
