@@ -728,8 +728,11 @@ static MOUNT_DISKS: phf::Map<&'static str, &[(&'static str, &'static str)] > = p
     &[("/mnt/azure-data", "defaults,rw,autodefrag,compress=zstd:11,commit=300,nodatasum")],
     // ^^ compress=lzo is fast w/o huge compression ratios, zstd:9 is slower with better ratio. high commit seconds means disk writes are less common.
 
-  "/dev/disk/by-partuuid/53da446a-2409-ca42-8337-12389dc70563" => 
-    &[("/mnt/scratch", "auto,rw,noatime,data=writeback,barrier=0,nobh,errors=remount-ro")],
+  //"/dev/disk/by-partuuid/53da446a-2409-ca42-8337-12389dc70563" =>  // Retired for now
+  //  &[("/mnt/scratch", "auto,rw,noatime,data=writeback,barrier=0,nobh,errors=remount-ro")],
+
+  "/dev/disk/by-partuuid/e08214f5-cfc5-4252-afee-505dfcd23808" => 
+    &[("/mnt/scratch", "defaults,rw,autodefrag,compress=zstd:11,commit=300,nodatasum")],
 
   "/dev/disk/by-partuuid/435cfadf-6a6e-4acf-a784-ab3f792ee8c6" => 
     &[("/mnt/wda", "auto,rw")],
