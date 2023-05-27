@@ -801,13 +801,13 @@ async fn mount_disks() {
         else {
           // Block device does NOT exist, remove mountpoint if it exists!
           if std::path::Path::new(disk_mount_path).exists() {
-            dump_error_and_ret!(
+            dump_error!(
               tokio::process::Command::new("sudo")
                 .args(&["-n", "umount", disk_mount_path])
                 .status()
                 .await
             );
-            dump_error_and_ret!(
+            dump_error!(
               tokio::process::Command::new("sudo")
                 .args(&["-n", "rmdir", disk_mount_path])
                 .status()
