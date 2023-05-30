@@ -1123,16 +1123,16 @@ async fn mount_swap_files() {
 
       }
 
-      // Also test if system is under load & if do bump CPU?
-      let (one_m, five_m, fifteen_m) = info.load_average();
-      if one_m > 3.2 {
-        // If > 3 cores are saturated, try to go to high performance
-        on_wanted_cpu_level(CPU_GOV_PERFORMANCE).await;
-      }
-      else if one_m < 0.50 {
-        // if <1 core used go low
-        on_wanted_cpu_level(CPU_GOV_POWERSAVE).await;
-      }
+      // // Also test if system is under load & if do bump CPU?
+      // let (one_m, five_m, fifteen_m) = info.load_average();
+      // if one_m > 3.2 {
+      //   // If > 3 cores are saturated, try to go to high performance
+      //   on_wanted_cpu_level(CPU_GOV_PERFORMANCE).await;
+      // }
+      // else if one_m < 0.50 {
+      //   // if <1 core used go low
+      //   on_wanted_cpu_level(CPU_GOV_POWERSAVE).await;
+      // }
 
 
     }
