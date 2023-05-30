@@ -1083,6 +1083,28 @@ async fn mount_swap_files() {
           //     .status()
           //     .await
           // );
+          
+          // Create a 1 byte file & then disable compression on it
+          dump_error!(
+            tokio::process::Command::new("sudo")
+              .args(&["-n", "sh", "-c", format!("echo > '{}'", &next_swap_file.to_string_lossy()).as_str() ])
+              .status()
+              .await
+          );
+          // Disable compression
+          dump_error!(
+            tokio::process::Command::new("sudo")
+              .args(&["-n", "setfattr", "-n", "btrfs.compression", "-v", "none", &next_swap_file.to_string_lossy() ])
+              .status()
+              .await
+          );
+          dump_error!(
+            tokio::process::Command::new("sudo")
+              .args(&["-n", "btrfs", "property", "set", &next_swap_file.to_string_lossy(), "compression", "none" ])
+              .status()
+              .await
+          );
+          // And now make that file 4gb
           dump_error!(
             tokio::process::Command::new("sudo")
               .args(&["-n", "dd", "if=/dev/zero", format!("of={}", &next_swap_file.to_string_lossy()).as_str(), "bs=1M", "count=4096", ])
