@@ -50,6 +50,7 @@ async fn eventmgr() {
     PersistentAsyncTask::new("bump_cpu_for_performance_procs",   ||{ tokio::task::spawn(bump_cpu_for_performance_procs()) }),
     PersistentAsyncTask::new("partial_resume_paused_procs",      ||{ tokio::task::spawn(partial_resume_paused_procs()) }),
     PersistentAsyncTask::new("bind_mount_azure_data",            ||{ tokio::task::spawn(bind_mount_azure_data()) }),
+    PersistentAsyncTask::new("mount_swap_files",                 ||{ tokio::task::spawn(mount_swap_files()) }),
   ];
 
   // We check for failed tasks and re-start them every 6 seconds
@@ -1023,6 +1024,108 @@ async fn partial_resume_paused_procs() {
   }
 }
 
+
+async fn mount_swap_files() {
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(6));
+  
+  interval.tick().await;
+
+  let external_scratch_usb_disk = "/dev/disk/by-partuuid/e08214f5-cfc5-4252-afee-505dfcd23808";
+  let internal_sd_card = "/dev/disk/by-partuuid/8f3ca68c-d031-2d41-849c-be5d9602e920";
+
+
+  let swap_file_dir: std::path::PathBuf = match get_mount_pt_of(external_scratch_usb_disk).await {
+    Some(mount_pt) => {
+      mount_pt.join("scratch-files")
+    }
+    None => {
+      match get_mount_pt_of(internal_sd_card).await {
+        Some(mount_pt) => {
+          mount_pt.join("scratch-files")
+        }
+        None => {
+          return;
+        }
+      }
+    }
+  };
+
+  if ! swap_file_dir.exists() {
+    dump_error!( tokio::fs::create_dir_all(&swap_file_dir).await );
+  }
+
+  // Each tick, if memory use including swap is above 80%, we add 4gb of swap.
+  // If memory use including swap is under 60%, we remove swap until this is 0.
+  // Swap files are named {swap_file_dir}/swap-{num_swap_files_added}
+  let mut num_swap_files_added = 0;
+  
+  loop {
+    interval.tick().await;
+
+    // See https://docs.rs/nix/latest/nix/sys/sysinfo/struct.SysInfo.html
+    //let info = nix::sys::sysinfo();
+    if let Ok(info) = nix::sys::sysinfo::sysinfo() {
+
+      let total_swap_bytes = info.swap_total();
+      let free_swap_bytes = info.swap_free();
+      let used_swap_bytes = total_swap_bytes - free_swap_bytes;
+
+      let swap_fraction_used: f64 = used_swap_bytes as f64 / total_swap_bytes as f64;
+      if swap_fraction_used > 0.60 {
+        // Add more!
+        num_swap_files_added += 1;
+        let next_swap_file = (&swap_file_dir).join(format!("swap-{}", num_swap_files_added));
+        if ! next_swap_file.exists() {
+          // Create a 4gb file
+          dump_error!(
+            tokio::process::Command::new("sudo")
+              .args(&["-n", "fallocate", "-l", "4G", &next_swap_file.to_string_lossy() ])
+              .status()
+              .await
+          );
+        }
+
+        dump_error!(
+          tokio::process::Command::new("sudo")
+            .args(&["-n", "chmod", "600", &next_swap_file.to_string_lossy() ])
+            .status()
+            .await
+        );
+
+        dump_error!(
+          tokio::process::Command::new("sudo")
+            .args(&["-n", "mkswap", &next_swap_file.to_string_lossy() ])
+            .status()
+            .await
+        );
+
+        dump_error!(
+          tokio::process::Command::new("sudo")
+            .args(&["-n", "swapon", &next_swap_file.to_string_lossy() ])
+            .status()
+            .await
+        );
+
+
+      }
+      else if swap_fraction_used < 0.25 && num_swap_files_added > 0 {
+        // Remove some!
+        let last_swap_file = swap_file_dir.join(format!("swap-{}", num_swap_files_added));
+        if last_swap_file.exists() {
+          // Swapoff
+          dump_error!(
+            tokio::process::Command::new("sudo")
+              .args(&["-n", "swapoff", &last_swap_file.to_string_lossy() ])
+              .status()
+              .await
+          );
+        }
+
+      }
+    }
+
+  }
+}
 
 
 
