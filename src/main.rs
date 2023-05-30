@@ -1036,12 +1036,12 @@ async fn mount_swap_files() {
 
   let swap_file_dir: std::path::PathBuf = match get_mount_pt_of(external_scratch_usb_disk).await {
     Some(mount_pt) => {
-      mount_pt.join("scratch-files")
+      mount_pt.join("swap-files")
     }
     None => {
       match get_mount_pt_of(internal_sd_card).await {
         Some(mount_pt) => {
-          mount_pt.join("scratch-files")
+          mount_pt.join("swap-files")
         }
         None => {
           return;
@@ -1077,9 +1077,15 @@ async fn mount_swap_files() {
         let next_swap_file = (&swap_file_dir).join(format!("swap-{}", num_swap_files_added));
         if ! next_swap_file.exists() {
           // Create a 4gb file
+          // dump_error!( // CANNOT USE ON FS WITH SPARSE FILE SUPPORT!!
+          //   tokio::process::Command::new("sudo")
+          //     .args(&["-n", "fallocate", "-l", "4G", &next_swap_file.to_string_lossy() ])
+          //     .status()
+          //     .await
+          // );
           dump_error!(
             tokio::process::Command::new("sudo")
-              .args(&["-n", "fallocate", "-l", "4G", &next_swap_file.to_string_lossy() ])
+              .args(&["-n", "dd", "if=/dev/zero", format!("of={}", &next_swap_file.to_string_lossy()).as_str(), "bs=1M", "count=4096", ])
               .status()
               .await
           );
