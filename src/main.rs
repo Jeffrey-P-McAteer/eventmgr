@@ -737,7 +737,10 @@ static MOUNT_DISKS: phf::Map<&'static str, &[(&'static str, &'static str)] > = p
   //  &[("/mnt/scratch", "auto,rw,noatime,data=writeback,barrier=0,nobh,errors=remount-ro")],
 
   "/dev/disk/by-partuuid/e08214f5-cfc5-4252-afee-505dfcd23808" => 
-    &[("/mnt/scratch", "defaults,rw,autodefrag,compress=zstd:11,commit=300,nodatasum")],
+    &[
+      ("/mnt/scratch", "defaults,rw,autodefrag,compress=zstd:11,commit=300,nodatasum"),
+      ("/mnt/scratch/swap-files", "defaults,rw,noatime,nodatacow,subvol=swap-files,nodatasum")
+    ],
 
   "/dev/disk/by-partuuid/435cfadf-6a6e-4acf-a784-ab3f792ee8c6" => 
     &[("/mnt/wda", "auto,rw")],
