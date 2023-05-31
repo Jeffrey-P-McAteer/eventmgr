@@ -739,7 +739,7 @@ static MOUNT_DISKS: phf::Map<&'static str, &[(&'static str, &'static str)] > = p
   "/dev/disk/by-partuuid/e08214f5-cfc5-4252-afee-505dfcd23808" => 
     &[
       ("/mnt/scratch", "defaults,rw,autodefrag,compress=zstd:11,commit=300,nodatasum"),
-      // sudo btrfs subvolume create /mnt/azure-data/swap-files
+      // sudo rmdir /mnt/scratch/swap-files ; sudo btrfs subvolume create /mnt/scratch/swap-files ; sudo btrfs property set /mnt/scratch/swap-files compression none
       ("/mnt/scratch/swap-files", "defaults,rw,noatime,nodatacow,subvol=swap-files,nodatasum")
     ],
 
