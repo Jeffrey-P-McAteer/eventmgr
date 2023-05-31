@@ -739,8 +739,8 @@ static MOUNT_DISKS: phf::Map<&'static str, &[(&'static str, &'static str)] > = p
   "/dev/disk/by-partuuid/e08214f5-cfc5-4252-afee-505dfcd23808" => 
     &[
       ("/mnt/scratch", "defaults,rw,autodefrag,compress=zstd:11,commit=300,nodatasum"),
-      // sudo rmdir /mnt/scratch/swap-files ; sudo btrfs subvolume create /mnt/scratch/swap-files ; sudo btrfs property set /mnt/scratch/swap-files compression none
-      ("/mnt/scratch/swap-files", "defaults,rw,noatime,nodatacow,subvol=swap-files,nodatasum")
+      // sudo rmdir /mnt/scratch/swap-files ; sudo btrfs subvolume create '/mnt/scratch/@swap-files' ; sudo btrfs property set /mnt/scratch/swap-files compression none
+      ("/mnt/scratch/swap-files", "defaults,rw,noatime,nodatacow,subvol=@swap-files,nodatasum")
     ],
 
   "/dev/disk/by-partuuid/435cfadf-6a6e-4acf-a784-ab3f792ee8c6" => 
@@ -1075,61 +1075,46 @@ async fn mount_swap_files() {
       let used_swap_bytes = total_swap_bytes - free_swap_bytes;
 
       let swap_fraction_used: f64 = used_swap_bytes as f64 / total_swap_bytes as f64;
-      if swap_fraction_used > 0.60 {
+      if swap_fraction_used > 0.60 && num_swap_files_added < 20 /* at 80gb of swap we have other problems */ {
         // Add more!
         num_swap_files_added += 1;
         let next_swap_file = (&swap_file_dir).join(format!("swap-{}", num_swap_files_added));
         if ! next_swap_file.exists() {
-          // Create a 4gb file
-          // dump_error!( // CANNOT USE ON FS WITH SPARSE FILE SUPPORT!!
-          //   tokio::process::Command::new("sudo")
-          //     .args(&["-n", "fallocate", "-l", "4G", &next_swap_file.to_string_lossy() ])
-          //     .status()
-          //     .await
-          // );
-          
-          // Create a 1 byte file & then disable compression on it
           dump_error!(
             tokio::process::Command::new("sudo")
-              .args(&["-n", "sh", "-c", format!("echo > '{}'", &next_swap_file.to_string_lossy()).as_str() ])
+              .args(&["-n", "truncate", "-s", "0", &next_swap_file.to_string_lossy() ])
               .status()
               .await
           );
-          // Disable compression
+
           dump_error!(
             tokio::process::Command::new("sudo")
-              .args(&["-n", "setfattr", "-n", "btrfs.compression", "-v", "none", &next_swap_file.to_string_lossy() ])
+              .args(&["-n", "chmod", "600", &next_swap_file.to_string_lossy() ])
               .status()
               .await
           );
-          dump_error!(
+
+          dump_error!( // Disable copy-on-write
             tokio::process::Command::new("sudo")
-              .args(&["-n", "btrfs", "property", "set", &next_swap_file.to_string_lossy(), "compression", "none" ])
+              .args(&["-n", "chattr", "+C", &next_swap_file.to_string_lossy() ])
               .status()
               .await
           );
-          // And now make that file 4gb
+
           dump_error!(
             tokio::process::Command::new("sudo")
-              .args(&["-n", "dd", "if=/dev/zero", format!("of={}", &next_swap_file.to_string_lossy()).as_str(), "bs=1M", "count=4096", ])
+              .args(&["-n", "fallocate", "-l", "4G", &next_swap_file.to_string_lossy() ])
+              .status()
+              .await
+          );
+
+          dump_error!(
+            tokio::process::Command::new("sudo")
+              .args(&["-n", "mkswap", &next_swap_file.to_string_lossy() ])
               .status()
               .await
           );
         }
-
-        dump_error!(
-          tokio::process::Command::new("sudo")
-            .args(&["-n", "chmod", "600", &next_swap_file.to_string_lossy() ])
-            .status()
-            .await
-        );
-
-        dump_error!(
-          tokio::process::Command::new("sudo")
-            .args(&["-n", "mkswap", &next_swap_file.to_string_lossy() ])
-            .status()
-            .await
-        );
 
         dump_error!(
           tokio::process::Command::new("sudo")
