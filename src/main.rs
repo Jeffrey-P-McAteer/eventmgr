@@ -1150,7 +1150,11 @@ async fn mount_swap_files() {
         // If > 3 cores are saturated, try to go to high performance
         on_wanted_cpu_level(CPU_GOV_PERFORMANCE).await;
       }
-      else if one_m < 0.60 {
+      else if one_m > 0.60 && one_m < 1.26 {
+        // if <1 core used go low
+        on_wanted_cpu_level(CPU_GOV_CONSERVATIVE).await;
+      }
+      else if one_m <= 0.60 {
         // if <1 core used go low
         on_wanted_cpu_level(CPU_GOV_POWERSAVE).await;
       }
