@@ -1146,7 +1146,7 @@ async fn mount_swap_files() {
 
       // // Also test if system is under load & if do bump CPU?
       let (one_m, five_m, fifteen_m) = info.load_average();
-      if one_m > 3.25 {
+      if one_m > 3.6 {
         // If > 3 cores are saturated, try to go to high performance
         on_wanted_cpu_level(CPU_GOV_PERFORMANCE).await;
       }
