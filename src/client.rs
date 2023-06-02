@@ -96,12 +96,6 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
       }
     }
 
-
-    dump_error!(
-      std::process::Command::new("sudo")
-        .args(&["-n", "modprobe", "i2c-dev"])
-        .status()
-    );
     
     // Also adjust ddcutil devices
     let ddcutil_serials = [
@@ -118,6 +112,12 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
       }
 
     }
+
+    dump_error!(
+      std::process::Command::new("sudo")
+        .args(&["-n", "modprobe", "i2c-dev"])
+        .status()
+    );
 
 
     return true;
