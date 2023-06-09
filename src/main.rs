@@ -773,6 +773,7 @@ async fn mount_disks() {
       for (disk_mount_path, disk_mount_opts) in disk_mount_items.iter() {
         if std::path::Path::new(disk_block_device).exists() {
           if ! is_mounted(disk_mount_path).await {
+            println!("Because {:?} exists we are mounting {:?} with options {:?}", disk_block_device, disk_mount_path, disk_mount_opts);
             if ! std::path::Path::new(disk_mount_path).exists() {
               // Sudo create it
               dump_error!(
@@ -812,6 +813,7 @@ async fn mount_disks() {
           }
         }
         else {
+          println!("Because {:?} does not exist we are un-mounting {:?} (options {:?} unused)", disk_block_device, disk_mount_path, disk_mount_opts);
           // Block device does NOT exist, remove mountpoint if it exists!
           if std::path::Path::new(disk_mount_path).exists() {
             dump_error!(
