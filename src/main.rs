@@ -775,7 +775,7 @@ async fn mount_disks() {
           if ! is_mounted(disk_mount_path).await {
             if ! std::path::Path::new(disk_mount_path).exists() {
               // Sudo create it
-              dump_error_and_ret!(
+              dump_error!(
                 tokio::process::Command::new("sudo")
                   .args(&["-n", "mkdir", "-p", disk_mount_path])
                   .status()
@@ -784,7 +784,7 @@ async fn mount_disks() {
             }
 
             // Even if path previously exists, ensure jeffrey owns it
-            dump_error_and_ret!(
+            dump_error!(
               tokio::process::Command::new("sudo")
                 .args(&["-n", "chown", "jeffrey", disk_mount_path])
                 .status()
@@ -793,7 +793,7 @@ async fn mount_disks() {
 
             // If there are space chars in disk_mount_opts run as a command, else pass to "mount"
             if disk_mount_opts.contains(" ") {
-              dump_error_and_ret!(
+              dump_error!(
                 tokio::process::Command::new("sudo")
                   .args(&["-n", "sh", "-c", disk_mount_opts])
                   .status()
@@ -801,7 +801,7 @@ async fn mount_disks() {
               );
             }
             else {
-              dump_error_and_ret!(
+              dump_error!(
                 tokio::process::Command::new("sudo")
                   .args(&["-n", "mount", "-o", disk_mount_opts, disk_block_device, disk_mount_path])
                   .status()
