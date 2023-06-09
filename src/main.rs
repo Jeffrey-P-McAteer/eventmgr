@@ -814,7 +814,8 @@ async fn mount_disks() {
         }
         else {
           // Block device does NOT exist, remove mountpoint if it exists!
-          if std::path::Path::new(disk_mount_path).exists() {
+          // NOTE: if there is an i/o error (like with ifuse stuff) Path.exists() returns false!
+          if std::path::Path::new(disk_mount_path).exists() || is_mounted(disk_mount_path).await {
             println!("Because {:?} does not exist we are un-mounting {:?} (options {:?} unused)", disk_block_device, disk_mount_path, disk_mount_opts);
             dump_error!(
               tokio::process::Command::new("sudo")
