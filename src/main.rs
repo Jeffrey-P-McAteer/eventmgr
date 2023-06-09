@@ -773,8 +773,8 @@ async fn mount_disks() {
       for (disk_mount_path, disk_mount_opts) in disk_mount_items.iter() {
         if std::path::Path::new(disk_block_device).exists() {
           if ! is_mounted(disk_mount_path).await {
-            println!("Because {:?} exists we are mounting {:?} with options {:?}", disk_block_device, disk_mount_path, disk_mount_opts);
             if ! std::path::Path::new(disk_mount_path).exists() {
+              println!("Because {:?} exists we are mounting {:?} with options {:?}", disk_block_device, disk_mount_path, disk_mount_opts);
               // Sudo create it
               dump_error!(
                 tokio::process::Command::new("sudo")
@@ -782,40 +782,40 @@ async fn mount_disks() {
                   .status()
                   .await
               );
-            }
 
-            // Even if path previously exists, ensure jeffrey owns it
-            dump_error!(
-              tokio::process::Command::new("sudo")
-                .args(&["-n", "chown", "jeffrey", disk_mount_path])
-                .status()
-                .await
-            );
-
-            // If there are space chars in disk_mount_opts run as a command, else pass to "mount"
-            if disk_mount_opts.contains(" ") {
+              // Even if path previously exists, ensure jeffrey owns it
               dump_error!(
                 tokio::process::Command::new("sudo")
-                  .args(&["-n", "sh", "-c", disk_mount_opts])
+                  .args(&["-n", "chown", "jeffrey", disk_mount_path])
                   .status()
                   .await
               );
-            }
-            else {
-              dump_error!(
-                tokio::process::Command::new("sudo")
-                  .args(&["-n", "mount", "-o", disk_mount_opts, disk_block_device, disk_mount_path])
-                  .status()
-                  .await
-              );
-            }
 
+              // If there are space chars in disk_mount_opts run as a command, else pass to "mount"
+              if disk_mount_opts.contains(" ") {
+                dump_error!(
+                  tokio::process::Command::new("sudo")
+                    .args(&["-n", "sh", "-c", disk_mount_opts])
+                    .status()
+                    .await
+                );
+              }
+              else {
+                dump_error!(
+                  tokio::process::Command::new("sudo")
+                    .args(&["-n", "mount", "-o", disk_mount_opts, disk_block_device, disk_mount_path])
+                    .status()
+                    .await
+                );
+              }
+
+            }
           }
         }
         else {
-          println!("Because {:?} does not exist we are un-mounting {:?} (options {:?} unused)", disk_block_device, disk_mount_path, disk_mount_opts);
           // Block device does NOT exist, remove mountpoint if it exists!
           if std::path::Path::new(disk_mount_path).exists() {
+            println!("Because {:?} does not exist we are un-mounting {:?} (options {:?} unused)", disk_block_device, disk_mount_path, disk_mount_opts);
             dump_error!(
               tokio::process::Command::new("sudo")
                 .args(&["-n", "umount", disk_mount_path])
