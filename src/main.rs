@@ -758,7 +758,8 @@ static MOUNT_DISKS: phf::Map<&'static str, &[(&'static str, &'static str)] > = p
   "/sys/class/power_supply/apple_mfi_fastcharge" =>
     &[
       ("/mnt/iphone-root", "ifuse -o allow_other,rw /mnt/iphone-root"),
-      ("/mnt/iphone-vox",  "ifuse --documents com.coppertino.VoxMobile -o allow_other,rw /mnt/iphone-vox")
+      ("/mnt/iphone-vox",  "ifuse --documents com.coppertino.VoxMobile -o allow_other,rw /mnt/iphone-vox"),
+      ("/mnt/iphone-vox.has-been-synced",  "sleep 0.5 ; rsync -avxHAX --no-perms --size-only --progress /j/music/ /mnt/iphone-vox/ ")
     ],
 
 };
