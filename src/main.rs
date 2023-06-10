@@ -857,7 +857,8 @@ async fn bump_cpu_for_performance_procs() {
               p_file_name == "g++" || p_file_name == "clang++" ||
               p_file_name == "rustc" || p_file_name == "cargo" ||
               p_file_name == "make" || p_file_name == "pacman" ||
-              p_file_name == "x86_64-w64-mingw32-gcc"
+              p_file_name == "x86_64-w64-mingw32-gcc" ||
+              p_file_name == "cc" || p_file_name == "cc1"
             ;
             if heavy_p_running {
               want_high_cpu = true;
