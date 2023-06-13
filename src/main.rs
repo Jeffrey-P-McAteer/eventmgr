@@ -767,6 +767,23 @@ static MOUNT_DISKS: phf::Map<&'static str, &[(&'static str, &'static str)] > = p
 async fn mount_disks() {
   let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(4));
 
+  // First, we use rmdir to remove all empty directories that exist under /mnt/
+  let mut rmdir_cmd = vec!["-n", "rmdir"];
+  for (disk_block_device, disk_mount_items) in MOUNT_DISKS.entries() {
+    for (disk_mount_path, disk_mount_opts) in disk_mount_items.iter() {
+      if ! is_mounted(disk_mount_path).await {
+        rmdir_cmd.push(disk_mount_path);
+      }
+    }
+  }
+
+  dump_error!(
+    tokio::process::Command::new("sudo")
+      .args(&rmdir_cmd)
+      .status()
+      .await
+  );
+
   loop {
     interval.tick().await;
 
