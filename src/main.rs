@@ -47,6 +47,7 @@ async fn eventmgr() {
     PersistentAsyncTask::new("poll_wallpaper_rotation",          ||{ tokio::task::spawn(poll_wallpaper_rotation()) }),
     PersistentAsyncTask::new("poll_check_dexcom",                ||{ tokio::task::spawn(poll_check_dexcom()) }),
     PersistentAsyncTask::new("mount_disks",                      ||{ tokio::task::spawn(mount_disks()) }),
+    PersistentAsyncTask::new("mount_net_disks",                  ||{ tokio::task::spawn(mount_net_disks()) }),
     PersistentAsyncTask::new("bump_cpu_for_performance_procs",   ||{ tokio::task::spawn(bump_cpu_for_performance_procs()) }),
     PersistentAsyncTask::new("partial_resume_paused_procs",      ||{ tokio::task::spawn(partial_resume_paused_procs()) }),
     PersistentAsyncTask::new("bind_mount_azure_data",            ||{ tokio::task::spawn(bind_mount_azure_data()) }),
@@ -853,6 +854,38 @@ async fn mount_disks() {
     }
   }
 }
+
+
+
+async fn mount_net_disks() {
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(12));
+
+  // First, we use rmdir to remove all empty directories that exist under /mnt/
+  // let mut rmdir_cmd = vec!["-n", "rmdir"];
+  // for (disk_block_device, disk_mount_items) in MOUNT_DISKS.entries() {
+  //   for (disk_mount_path, disk_mount_opts) in disk_mount_items.iter() {
+  //     if ! is_mounted(disk_mount_path).await {
+  //       rmdir_cmd.push(disk_mount_path);
+  //     }
+  //   }
+  // }
+
+  // dump_error!(
+  //   tokio::process::Command::new("sudo")
+  //     .args(&rmdir_cmd)
+  //     .status()
+  //     .await
+  // );
+
+  loop {
+    interval.tick().await;
+
+    // TODO ping all possible network file shares
+    //      and mount them
+
+  }
+}
+
 
 
 
