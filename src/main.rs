@@ -844,7 +844,7 @@ async fn mount_disks() {
             );
             dump_error!(
               tokio::process::Command::new("sudo")
-                .args(&["-n", "rmdir", disk_mount_path])
+                .args(&["-n", "rmdir", "--parents", disk_mount_path])
                 .status()
                 .await
             );
@@ -859,7 +859,8 @@ async fn mount_disks() {
 static MOUNT_NET_SHARES: phf::Map<&'static str, &[(&'static str, &'static str)] > = phf::phf_map! {
   "machome.local" => 
     &[
-      ("/mnt/machome/video", "mount -t cifs -o user=jeffrey,pass=$MACHOME_JEFF_PW,uid=1000,gid=1000 //machome.local/video /mnt/machome/video"),
+      ("/mnt/machome/video",         "mount -t cifs -o username=jeffrey,password=$MACHOME_JEFF_PW,uid=1000,gid=1000 //machome.local/video /mnt/machome/video"),
+      ("/mnt/machome/miscellaneous", "mount -t cifs -o username=jeffrey,password=$MACHOME_JEFF_PW,uid=1000,gid=1000 //machome.local/miscellaneous /mnt/machome/miscellaneous"),
     ],
 };
 
@@ -883,13 +884,23 @@ async fn mount_net_shares() {
       .await
   );
 
-  let machome_jeff_pw = tokio::fs::read_to_string("/j/.cache/machome_jeff_pw").await.unwrap_or(String::new());
-  let machome_jeff_pw = machome_jeff_pw.trim().to_string();
+  // All secrets used by mount commands should read them here
+  let mut network_subproc_env: std::collections::HashMap::<String, String> = std::collections::HashMap::<String, String>::new();
 
-  let network_subproc_env: std::collections::HashMap::<String, String> = std::collections::HashMap::<String, String>::from([
-    ("MACHOME_JEFF_PW".into(), machome_jeff_pw)
-  ]);
+  match tokio::fs::read_to_string("/j/.cache/machome_jeff_pw").await {
+    Ok(machome_jeff_pw) => {
+      let machome_jeff_pw = machome_jeff_pw.trim().to_string();
+      network_subproc_env.insert("MACHOME_JEFF_PW".into(), machome_jeff_pw);
+    }
+    Err(e) => {
+      println!("e reading /j/.cache/machome_jeff_pw : {:?}", e);
+    }
+  }
 
+  let network_subproc_env = network_subproc_env;
+
+  const HOST_MAX_MISSED_PINGS: usize = 4;
+  let mut host_missed_pings: std::collections::HashMap::<&'static str, usize> = std::collections::HashMap::<&'static str, usize>::new();
 
   loop {
     interval.tick().await;
@@ -906,6 +917,7 @@ async fn mount_net_shares() {
             ).await;
             if let Ok(dns_results) = dns_results {
               can_ping_share_host = Some(true); // got results
+              host_missed_pings.insert(share_host, 0); // clear missed pings
             }
             else {
               can_ping_share_host = Some(false); // timeout!
@@ -915,7 +927,7 @@ async fn mount_net_shares() {
             if can_ping_share_host {
               // Not mounted but can ping, mount!
               
-              println!("We can ping {} but have not yet mounted {}", share_host, disk_mount_path);
+              println!("We can ping {} but have not yet mounted {}, mounting...", share_host, disk_mount_path);
 
               dump_error!(
                 tokio::process::Command::new("sudo")
@@ -934,7 +946,7 @@ async fn mount_net_shares() {
               dump_error!(
                 tokio::process::Command::new("sudo")
                   .envs(&network_subproc_env)
-                  .args(&["-n", "sh", "-c", disk_mount_cmd])
+                  .args(&["--preserve-env", "-n", "sh", "-c", disk_mount_cmd])
                   .status()
                   .await
               );
@@ -950,22 +962,33 @@ async fn mount_net_shares() {
               tokio::net::lookup_host(share_host)
             ).await;
             if let Ok(dns_results) = dns_results {
-              can_ping_share_host = Some(true); // got results
+              host_missed_pings.insert(share_host, 0); // Host is alive!
             }
             else {
-              can_ping_share_host = Some(false); // timeout!
+              // Increment number of missed pings
+              let num_missed_pings = host_missed_pings.get(share_host).unwrap_or(&0);
+              host_missed_pings.insert(share_host, num_missed_pings + 1 );
             }
           }
-          if let Some(can_ping_share_host) = can_ping_share_host {
-            if !can_ping_share_host {
-              // Unmount!
-              dump_error!(
-                tokio::process::Command::new("sudo")
-                  .args(&["-n", "umount", disk_mount_path])
-                  .status()
-                  .await
-              );
-            }
+          let num_missed_pings = host_missed_pings.get(share_host).unwrap_or(&0);
+          let num_missed_pings = *num_missed_pings;
+          if num_missed_pings >= HOST_MAX_MISSED_PINGS {
+            println!("{} is mounted but host {} has disappeared (num_missed_pings={}), un-mounting!", disk_mount_path, share_host, num_missed_pings);
+
+            dump_error!(
+              tokio::process::Command::new("sudo")
+                .args(&["-n", "umount", disk_mount_path])
+                .status()
+                .await
+            );
+
+            dump_error!(
+              tokio::process::Command::new("sudo")
+                .args(&["-n", "rmdir", "--parents", disk_mount_path])
+                .status()
+                .await
+            );
+
           }
 
         }
