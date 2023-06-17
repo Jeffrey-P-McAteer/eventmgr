@@ -47,7 +47,7 @@ async fn eventmgr() {
     PersistentAsyncTask::new("poll_wallpaper_rotation",          ||{ tokio::task::spawn(poll_wallpaper_rotation()) }),
     PersistentAsyncTask::new("poll_check_dexcom",                ||{ tokio::task::spawn(poll_check_dexcom()) }),
     PersistentAsyncTask::new("mount_disks",                      ||{ tokio::task::spawn(mount_disks()) }),
-    PersistentAsyncTask::new("mount_net_disks",                  ||{ tokio::task::spawn(mount_net_disks()) }),
+    PersistentAsyncTask::new("mount_net_shares",                 ||{ tokio::task::spawn(mount_net_shares()) }),
     PersistentAsyncTask::new("bump_cpu_for_performance_procs",   ||{ tokio::task::spawn(bump_cpu_for_performance_procs()) }),
     PersistentAsyncTask::new("partial_resume_paused_procs",      ||{ tokio::task::spawn(partial_resume_paused_procs()) }),
     PersistentAsyncTask::new("bind_mount_azure_data",            ||{ tokio::task::spawn(bind_mount_azure_data()) }),
@@ -760,7 +760,7 @@ static MOUNT_DISKS: phf::Map<&'static str, &[(&'static str, &'static str)] > = p
     &[
       ("/mnt/iphone-root", "ifuse -o allow_other,rw /mnt/iphone-root"),
       ("/mnt/iphone-vox",  "ifuse --documents com.coppertino.VoxMobile -o allow_other,rw /mnt/iphone-vox"),
-      ("/mnt/iphone-vox.has-been-synced",  "sleep 0.5 ; rsync -avxHAX --no-owner --no-group --no-perms --size-only --progress /j/music/ /mnt/iphone-vox/ ")
+      ("/mnt/iphone-vox.has-been-synced",  "sleep 0.5 ; mount | grep -q iphone-vox && sudo -u jeffrey rsync -avxHAX --no-owner --no-group --no-perms --size-only --progress /j/music/ /mnt/iphone-vox/ ")
     ],
 
 };
@@ -856,32 +856,68 @@ async fn mount_disks() {
 }
 
 
+static MOUNT_NET_SHARES: phf::Map<&'static str, &[(&'static str, &'static str)] > = phf::phf_map! {
+  "machome.local" => 
+    &[
+      ("/mnt/machome/video", "mount -t cifs -o user=jeffrey,pass=$MACHOME_JEFF_PW,uid=1000,gid=1000 //machome.local/video /mnt/machome/video"),
+    ],
+};
 
-async fn mount_net_disks() {
-  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(12));
+async fn mount_net_shares() {
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(18));
 
   // First, we use rmdir to remove all empty directories that exist under /mnt/
-  // let mut rmdir_cmd = vec!["-n", "rmdir"];
-  // for (disk_block_device, disk_mount_items) in MOUNT_DISKS.entries() {
-  //   for (disk_mount_path, disk_mount_opts) in disk_mount_items.iter() {
-  //     if ! is_mounted(disk_mount_path).await {
-  //       rmdir_cmd.push(disk_mount_path);
-  //     }
-  //   }
-  // }
+  let mut rmdir_cmd = vec!["-n", "rmdir"];
+  for (share_host, disk_mount_items) in MOUNT_NET_SHARES.entries() {
+    for (disk_mount_path, disk_mount_opts) in disk_mount_items.iter() {
+      if ! is_mounted(disk_mount_path).await {
+        rmdir_cmd.push(disk_mount_path);
+      }
+    }
+  }
 
-  // dump_error!(
-  //   tokio::process::Command::new("sudo")
-  //     .args(&rmdir_cmd)
-  //     .status()
-  //     .await
-  // );
+  dump_error!(
+    tokio::process::Command::new("sudo")
+      .args(&rmdir_cmd)
+      .status()
+      .await
+  );
+
+  
 
   loop {
     interval.tick().await;
 
-    // TODO ping all possible network file shares
-    //      and mount them
+    for (share_host, disk_mount_items) in MOUNT_NET_SHARES.entries() {
+      let mut can_ping_share_host: Option<bool> = None;
+      for (disk_mount_path, disk_mount_opts) in disk_mount_items.iter() {
+        if ! is_mounted(disk_mount_path).await {
+          // Can we ping share_host?
+          if can_ping_share_host.is_none() {
+            let dns_results = tokio::time::timeout(
+              std::time::Duration::from_millis(4500),
+              tokio::net::lookup_host(share_host)
+            ).await;
+            if let Ok(dns_results) = dns_results {
+              can_ping_share_host = Some(true); // got results
+            }
+            else {
+              can_ping_share_host = Some(false); // timeout!
+            }
+          }
+          if let Some(can_ping_share_host) = can_ping_share_host {
+            if can_ping_share_host {
+              // Not mounted but can ping, mount!
+              
+              println!("We can ping {} but have not yet mounted {}", share_host, disk_mount_path);
+
+
+            }
+          }
+        }
+      }
+    }
+    
 
   }
 }
