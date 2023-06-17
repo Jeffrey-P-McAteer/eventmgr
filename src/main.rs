@@ -864,7 +864,7 @@ static MOUNT_NET_SHARES: phf::Map<&'static str, &[(&'static str, &'static str)] 
 };
 
 async fn mount_net_shares() {
-  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(18));
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(24));
 
   // First, we use rmdir to remove all empty directories that exist under /mnt/
   let mut rmdir_cmd = vec!["-n", "rmdir"];
@@ -883,14 +883,20 @@ async fn mount_net_shares() {
       .await
   );
 
-  
+  let machome_jeff_pw = tokio::fs::read_to_string("/j/.cache/machome_jeff_pw").await.unwrap_or(String::new());
+  let machome_jeff_pw = machome_jeff_pw.trim().to_string();
+
+  let network_subproc_env: std::collections::HashMap::<String, String> = std::collections::HashMap::<String, String>::from([
+    ("MACHOME_JEFF_PW".into(), machome_jeff_pw)
+  ]);
+
 
   loop {
     interval.tick().await;
 
     for (share_host, disk_mount_items) in MOUNT_NET_SHARES.entries() {
       let mut can_ping_share_host: Option<bool> = None;
-      for (disk_mount_path, disk_mount_opts) in disk_mount_items.iter() {
+      for (disk_mount_path, disk_mount_cmd) in disk_mount_items.iter() {
         if ! is_mounted(disk_mount_path).await {
           // Can we ping share_host?
           if can_ping_share_host.is_none() {
@@ -911,9 +917,57 @@ async fn mount_net_shares() {
               
               println!("We can ping {} but have not yet mounted {}", share_host, disk_mount_path);
 
+              dump_error!(
+                tokio::process::Command::new("sudo")
+                  .args(&["-n", "mkdir", "-p", disk_mount_path])
+                  .status()
+                  .await
+              );
+
+              dump_error!(
+                tokio::process::Command::new("sudo")
+                  .args(&["-n", "chown", "jeffrey:jeffrey", disk_mount_path])
+                  .status()
+                  .await
+              );
+
+              dump_error!(
+                tokio::process::Command::new("sudo")
+                  .envs(&network_subproc_env)
+                  .args(&["-n", "sh", "-c", disk_mount_cmd])
+                  .status()
+                  .await
+              );
 
             }
           }
+        }
+        else {
+          // We are mounted, can we ping? If not then un-mount
+          if can_ping_share_host.is_none() {
+            let dns_results = tokio::time::timeout(
+              std::time::Duration::from_millis(4500),
+              tokio::net::lookup_host(share_host)
+            ).await;
+            if let Ok(dns_results) = dns_results {
+              can_ping_share_host = Some(true); // got results
+            }
+            else {
+              can_ping_share_host = Some(false); // timeout!
+            }
+          }
+          if let Some(can_ping_share_host) = can_ping_share_host {
+            if !can_ping_share_host {
+              // Unmount!
+              dump_error!(
+                tokio::process::Command::new("sudo")
+                  .args(&["-n", "umount", disk_mount_path])
+                  .status()
+                  .await
+              );
+            }
+          }
+
         }
       }
     }
