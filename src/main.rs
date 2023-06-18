@@ -230,7 +230,10 @@ async fn on_window_focus(window_name: &str, sway_node: &swayipc_async::Node) {
     );
   }
   else {
-    if lower_window.contains("spice display") {
+    if lower_window.contains(" - mpv") {
+      on_wanted_cpu_level(CPU_GOV_POWERSAVE).await;
+    }
+    else if lower_window.contains("spice display") {
       on_wanted_cpu_level(CPU_GOV_PERFORMANCE).await; // bump for VM
     }
     else if lower_window.contains("mozilla firefox") {
