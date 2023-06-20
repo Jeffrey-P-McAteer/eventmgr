@@ -393,10 +393,10 @@ async fn poll_device_audio_playback() {
     // Walk /proc/asound/card*/pcm*/sub*/status
     // Looking for "state: RUNNING"
     let mut saw_one_running = false;
-    if let Ok(iterator) = glob("/proc/asound/card*/pcm*/sub*/status") {
-      for status_entry in iterator.iter() {
+    if let Ok(iterator) = glob::glob("/proc/asound/card*/pcm*/sub*/status") {
+      for status_entry in iterator {
         if let Ok(status_entry_path) = status_entry {
-          if let Ok(status_contents) = tokio::fs::read_to_string(status_entry_path) {
+          if let Ok(status_contents) = tokio::fs::read_to_string(status_entry_path).await {
             if status_contents.contains("RUNNING") || status_contents.contains("running") {
               saw_one_running = true;
               break;
