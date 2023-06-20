@@ -270,7 +270,7 @@ async fn darken_kbd_if_video_focused_and_audio_playing() {
 
   let is_video = focused_win_name.contains("youtube") ||
                  focused_win_name.contains("mpv") ||
-                 focused_win_name.contains("youtube");
+                 focused_win_name.contains("mozilla firefox");
 
   if is_video {
     set_kbd_light(0).await;
