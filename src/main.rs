@@ -282,10 +282,10 @@ async fn darken_kbd_if_video_focused_and_audio_playing() {
 }
 
 async fn set_kbd_light(level: u32) {
-  let current_level = CURRENT_KBD_LIGHT_VAL.load(std::sync::atomic::Ordering::Relaxed);
-  if current_level == level {
-    return;
-  }
+  // let current_level = CURRENT_KBD_LIGHT_VAL.load(std::sync::atomic::Ordering::Relaxed);
+  // if current_level == level {
+  //   return;
+  // }
 
   if let Ok(led_devices) = bulbb::misc::LedDevice::get_all_led_devices() {
     for ld in led_devices {
