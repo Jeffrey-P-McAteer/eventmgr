@@ -365,7 +365,7 @@ async fn poll_device_audio_playback() {
       let num_read_bytes = dump_error_and_ret!( io_stream.readi(&mut sound_buffer) );
       let audio_vol_amount = rms(&sound_buffer[0..num_read_bytes]);
 
-      //println!("audio_vol_amount = {}", audio_vol_amount);
+      println!("audio_vol_amount = {}", audio_vol_amount);
 
       if audio_vol_amount < -500.0 { // "regular" numbers are around -25.0 or so, so significantly below this (incl -inf) is no audio!
         CURRENTLY_PLAYING_AUDIO.store(false, std::sync::atomic::Ordering::SeqCst);
