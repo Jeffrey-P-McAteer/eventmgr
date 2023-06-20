@@ -304,8 +304,8 @@ static CURRENTLY_PLAYING_AUDIO: once_cell::sync::Lazy<std::sync::atomic::AtomicB
 );
 
 async fn poll_device_audio_playback() {
-  use alsa::pcm::*;
-  use alsa::{Direction, ValueOr, Error};
+  // use alsa::pcm::*;
+  // use alsa::{Direction, ValueOr, Error};
 
   // Ensure pulse can connect!
   if ! std::env::var("DBUS_SESSION_BUS_ADDRESS").is_ok() {
@@ -345,35 +345,69 @@ async fn poll_device_audio_playback() {
   loop {
     interval.tick().await;
 
-    dump_error_and_ret!( tokio::task::spawn_blocking(move || {
-      // New connection each poll, why not?
-      let pcm = dump_error_and_ret!( PCM::new("default", Direction::Capture, false) );
-      {
-          // For this example, we assume 44100Hz, one channel, 16 bit audio.
-          let hwp = dump_error_and_ret!( HwParams::any(&pcm) );
-          dump_error_and_ret!( hwp.set_channels(1) );
-          dump_error_and_ret!( hwp.set_rate(44100, ValueOr::Nearest) );
-          dump_error_and_ret!( hwp.set_format(Format::s16()) );
-          dump_error_and_ret!( hwp.set_access(Access::RWInterleaved) );
-          dump_error_and_ret!( pcm.hw_params(&hwp) );
+    // dump_error_and_ret!( tokio::task::spawn_blocking(move || {
+
+    //   // PCM::new("default") gives us the default mic device.
+    //   // We iterate everything & look for monitor devices of (1) usb headphones, (2) default.
+    //   // println!("");
+    //   // println!("================================");
+    //   // println!("");
+    //   // for t in &["pcm", "ctl", "rawmidi", "timer", "seq", "hwdep"] {
+    //   //     println!("{} devices:", t);
+    //   //     let i = alsa::device_name::HintIter::new(None, &*std::ffi::CString::new(*t).unwrap()).unwrap();
+    //   //     for a in i { println!("  {:?}", a) }
+    //   // }
+    //   // println!("");
+    //   // println!("================================");
+    //   // println!("");
+
+    //   // // New connection each poll, why not?
+    //   // let pcm = dump_error_and_ret!( PCM::new("default", Direction::Capture, false) );
+    //   // {
+    //   //     // For this example, we assume 44100Hz, one channel, 16 bit audio.
+    //   //     let hwp = dump_error_and_ret!( HwParams::any(&pcm) );
+    //   //     dump_error_and_ret!( hwp.set_channels(1) );
+    //   //     dump_error_and_ret!( hwp.set_rate(44100, ValueOr::Nearest) );
+    //   //     dump_error_and_ret!( hwp.set_format(Format::s16()) );
+    //   //     dump_error_and_ret!( hwp.set_access(Access::RWInterleaved) );
+    //   //     dump_error_and_ret!( pcm.hw_params(&hwp) );
+    //   // }
+    //   // dump_error_and_ret!( pcm.start() );
+
+    //   // let io_stream = dump_error_and_ret!( pcm.io_i16() );
+    //   // let mut sound_buffer = [0i16; 8192];
+
+    //   // let num_read_bytes = dump_error_and_ret!( io_stream.readi(&mut sound_buffer) );
+    //   // let audio_vol_amount = rms(&sound_buffer[0..num_read_bytes]);
+
+    //   // println!("audio_vol_amount = {}", audio_vol_amount);
+
+    //   // if audio_vol_amount < -500.0 { // "regular" numbers are around -25.0 or so, so significantly below this (incl -inf) is no audio!
+    //   //   CURRENTLY_PLAYING_AUDIO.store(false, std::sync::atomic::Ordering::SeqCst);
+    //   // }
+    //   // else {
+    //   //   CURRENTLY_PLAYING_AUDIO.store(true, std::sync::atomic::Ordering::SeqCst);
+    //   // }
+    // }).await );
+
+    // Walk /proc/asound/card*/pcm*/sub*/status
+    // Looking for "state: RUNNING"
+    let mut saw_one_running = false;
+    if let Ok(iterator) = glob("/proc/asound/card*/pcm*/sub*/status") {
+      for status_entry in iterator.iter() {
+        if let Ok(status_entry_path) = status_entry {
+          if let Ok(status_contents) = tokio::fs::read_to_string(status_entry_path) {
+            if status_contents.contains("RUNNING") || status_contents.contains("running") {
+              saw_one_running = true;
+              break;
+            }
+          }
+        }
       }
-      dump_error_and_ret!( pcm.start() );
+    }
 
-      let io_stream = dump_error_and_ret!( pcm.io_i16() );
-      let mut sound_buffer = [0i16; 8192];
+    CURRENTLY_PLAYING_AUDIO.store(saw_one_running, std::sync::atomic::Ordering::SeqCst);
 
-      let num_read_bytes = dump_error_and_ret!( io_stream.readi(&mut sound_buffer) );
-      let audio_vol_amount = rms(&sound_buffer[0..num_read_bytes]);
-
-      println!("audio_vol_amount = {}", audio_vol_amount);
-
-      if audio_vol_amount < -500.0 { // "regular" numbers are around -25.0 or so, so significantly below this (incl -inf) is no audio!
-        CURRENTLY_PLAYING_AUDIO.store(false, std::sync::atomic::Ordering::SeqCst);
-      }
-      else {
-        CURRENTLY_PLAYING_AUDIO.store(true, std::sync::atomic::Ordering::SeqCst);
-      }
-    }).await );
 
     darken_kbd_if_video_focused_and_audio_playing().await;
 
