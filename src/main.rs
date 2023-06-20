@@ -333,6 +333,15 @@ async fn poll_device_audio_playback() {
 
   interval.tick().await; // Wait 1 tick before recording
 
+  // Also attempt to make a ton of files world-writeable
+
+  dump_error_and_ret!(
+    tokio::process::Command::new("sudo")
+      .args(&["-n", "find", "/sys", "-iname", "brightness", "-exec", "chmod", "a+rw", "{}", ";" ])
+      .status()
+      .await
+  );
+
   loop {
     interval.tick().await;
 
