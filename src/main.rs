@@ -549,18 +549,28 @@ async fn poll_wallpaper_rotation() {
   loop {
     interval.tick().await;
 
-    let mut picked_wp_dir = "";
+    let mut picked_wp_dir = "".to_string();
 
-    for _ in 0..500 { // "kinda" an infinite loop, exiting when a dir has been picked
-      for (wp_dir, dir_weight) in WALLPAPER_DIR_WEIGHTS.entries() {
-        let rand_num = fastrand::usize(0..weights_total);
-        if rand_num <= *dir_weight {
-          picked_wp_dir = wp_dir;
+    // First check if we have an override in /tmp/wallpaper-folder
+    if let Ok(override_wp_dir) = tokio::fs::read_to_string("/tmp/wallpaper-folder").await {
+      picked_wp_dir = override_wp_dir.trim().to_string();
+      // if picked_wp_dir does not exist, append to /j/photos/wallpaper/ until it does?
+      if ! std::path::Path::new(&picked_wp_dir).exists() {
+        picked_wp_dir = format!("/j/photos/wallpaper/{}", picked_wp_dir);
+      }
+    }
+    else {
+      for _ in 0..500 { // "kinda" an infinite loop, exiting when a dir has been picked
+        for (wp_dir, dir_weight) in WALLPAPER_DIR_WEIGHTS.entries() {
+          let rand_num = fastrand::usize(0..weights_total);
+          if rand_num <= *dir_weight {
+            picked_wp_dir = wp_dir.to_string();
+            break;
+          }
+        }
+        if picked_wp_dir.len() > 0 {
           break;
         }
-      }
-      if picked_wp_dir.len() > 0 {
-        break;
       }
     }
 
