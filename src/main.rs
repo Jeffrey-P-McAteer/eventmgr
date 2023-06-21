@@ -111,6 +111,7 @@ async fn handle_exit_signals() {
     if want_shutdown {
       println!("Got SIG{{TERM/INT}}, shutting down!");
       unpause_all_paused_pids().await;
+      unmount_all_disks().await;
       // Allow spawned futures to complete...
       tokio::time::sleep( tokio::time::Duration::from_millis(500) ).await;
       println!("Goodbye!");
@@ -1184,6 +1185,34 @@ async fn unpause_all_paused_pids() {
       unpause_pid(pid).await;
     }
   }
+}
+
+async fn unmount_all_disks() {
+  let mut all_possible_disk_mount_paths: Vec<String> = vec![];
+  for (disk_block_device, disk_mount_items) in MOUNT_DISKS.entries() {
+    for (disk_mount_path, disk_mount_opts) in disk_mount_items.iter() {
+      all_possible_disk_mount_paths.push( disk_mount_path.to_string() );
+    }
+  }
+  for (share_host, disk_mount_items) in MOUNT_NET_SHARES.entries() {
+    for (disk_mount_path, disk_mount_opts) in disk_mount_items.iter() {
+      all_possible_disk_mount_paths.push( disk_mount_path.to_string() );
+    }
+  }
+
+  for _ in 0..3 { // just try several times in case a sub-directory is mounted?
+    for possibly_mounted_disk_path in all_possible_disk_mount_paths.iter() {
+      if is_mounted(possibly_mounted_disk_path).await {
+        dump_error!(
+          tokio::process::Command::new("sudo")
+            .args(&["-n", "umount", possibly_mounted_disk_path])
+            .status()
+            .await
+        );
+      }
+    }
+  }
+
 }
 
 async fn unpause_pid(pid: i32) {
