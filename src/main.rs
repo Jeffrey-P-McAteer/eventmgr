@@ -869,26 +869,33 @@ async fn mount_disks() {
                   .status()
                   .await
               );
-
-              // If there are space chars in disk_mount_opts run as a command, else pass to "mount"
-              if disk_mount_opts.contains(" ") {
-                dump_error!(
-                  tokio::process::Command::new("sudo")
-                    .args(&["-n", "sh", "-c", disk_mount_opts])
-                    .status()
-                    .await
-                );
-              }
-              else {
-                dump_error!(
-                  tokio::process::Command::new("sudo")
-                    .args(&["-n", "mount", "-o", disk_mount_opts, disk_block_device, disk_mount_path])
-                    .status()
-                    .await
-                );
-              }
-
             }
+
+            // We're still not mounted, do the mount!
+            // If there are space chars in disk_mount_opts run as a command, else pass to "mount"
+            if disk_mount_opts.contains(" ") {
+              dump_error!(
+                tokio::process::Command::new("sudo")
+                  .args(&["-n", "sh", "-c", disk_mount_opts])
+                  .status()
+                  .await
+              );
+            }
+            else {
+              dump_error!(
+                tokio::process::Command::new("sudo")
+                  .args(&["-n", "mount", "-o", disk_mount_opts, disk_block_device, disk_mount_path])
+                  .status()
+                  .await
+              );
+            }
+
+            // Sleep for 1 sec to allow mount, & continue if we aren't mounted to avoid secondary mount failures.
+            tokio::time::sleep(tokio::time::Duration::from_millis(900)).await;
+            if ! is_mounted(disk_mount_path).await {
+              continue;
+            }
+
           }
         }
         else {
