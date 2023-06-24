@@ -676,7 +676,7 @@ async fn bind_mount_azure_data() {
   // n == neither, d == data mounted, t == tmpfs mounted
   let mut data_mount_points_mounted = 'n';
 
-  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(6));
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(8));
 
   loop {
     interval.tick().await; // wait at least one tick so we can fail early below w/o a hugely infinite loop
@@ -704,6 +704,8 @@ async fn bind_mount_azure_data() {
           .await
       );
     }
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(110)).await;
 
     // Also create data_mnt_path if ! exists
     let data_mnt_path = azure_data_mount.join(data_mnt_path);
@@ -744,6 +746,18 @@ async fn bind_mount_azure_data() {
       // bind-mount all folders in data_mount_points
       for (root_fs_dir, data_mnt_path) in data_mount_points.iter() {
         let data_mnt_path = azure_data_mount.join(data_mnt_path);
+        if is_mounted(root_fs_dir).await {
+          dump_error_and_ret!(
+            tokio::process::Command::new("sudo")
+              .args(&["-n", "umount", root_fs_dir])
+              .status()
+              .await
+          );
+          tokio::time::sleep(tokio::time::Duration::from_millis(110)).await;
+        }
+        if is_mounted(root_fs_dir).await {
+          continue;
+        }
         dump_error!(
           tokio::process::Command::new("sudo")
             .args(&["-n", "mount", "--bind", &data_mnt_path.to_string_lossy(), root_fs_dir ])
@@ -771,6 +785,18 @@ async fn bind_mount_azure_data() {
 
       // Bind-mount our /tmp/ to the folders to avoid data falling on to the root FS
       for (root_fs_dir, data_mnt_path) in data_mount_points.iter() {
+        if is_mounted(root_fs_dir).await {
+          dump_error_and_ret!(
+            tokio::process::Command::new("sudo")
+              .args(&["-n", "umount", root_fs_dir])
+              .status()
+              .await
+          );
+          tokio::time::sleep(tokio::time::Duration::from_millis(110)).await;
+        }
+        if is_mounted(root_fs_dir).await {
+          continue;
+        }
         let data_mnt_path = tmp_data_mount.join(data_mnt_path);
         dump_error!(
           tokio::process::Command::new("sudo")
