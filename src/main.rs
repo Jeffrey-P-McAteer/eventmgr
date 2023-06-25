@@ -922,6 +922,16 @@ async fn mount_disks() {
               continue;
             }
 
+            // If it is mounted, clean Windorks nonsense by rm/rf-ing some files
+            dump_error!(
+              tokio::process::Command::new("sudo")
+                .args(&["-n", "rm", "-rf", format!("{}/$RECYCLE.BIN", disk_mount_path).as_str(), format!("{}/System Volume Information", disk_mount_path).as_str(), ])
+                .status()
+                .await
+            );
+
+            // sudo rm -rf /\$RECYCLE.BIN /System\ Volume\ Information
+
           }
         }
         else {
