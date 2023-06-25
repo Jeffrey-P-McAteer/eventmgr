@@ -52,6 +52,7 @@ async fn eventmgr() {
     PersistentAsyncTask::new("partial_resume_paused_procs",      ||{ tokio::task::spawn(partial_resume_paused_procs()) }),
     PersistentAsyncTask::new("bind_mount_azure_data",            ||{ tokio::task::spawn(bind_mount_azure_data()) }),
     PersistentAsyncTask::new("mount_swap_files",                 ||{ tokio::task::spawn(mount_swap_files()) }),
+    PersistentAsyncTask::new("turn_off_misc_lights",             ||{ tokio::task::spawn(turn_off_misc_lights()) }),
   ];
 
   // We check for failed tasks and re-start them every 6 seconds
@@ -1469,6 +1470,32 @@ async fn mount_swap_files() {
 
 
 
+async fn turn_off_misc_lights() {
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(48));
+
+  // find /sys -name brightness -print -exec cat {} \; 2>/dev/null
+  let files_to_write_0_to = &[
+    "/sys/devices/platform/thinkpad_acpi/leds/platform::micmute/brightness",
+  ];
+  
+  loop {
+    interval.tick().await;
+
+    for file_to_write_0_to in files_to_write_0_to.iter() {
+      dump_error_and_ret!(
+        tokio::process::Command::new("sudo")
+          .args(&["-n", "sh", "-c", format!("echo 0 > {}", file_to_write_0_to).as_str(), ])
+          .status()
+          .await
+      );
+    }
+
+
+  }
+}
+
+
+
 
 
 
@@ -1499,7 +1526,7 @@ async fn set_cpu(governor: &str) {
   println!("setting CPU to {}", governor);
   dump_error_and_ret!(
     tokio::process::Command::new("sudo")
-      .args(&["cpupower", "frequency-set", "-g", governor])
+      .args(&["-n", "cpupower", "frequency-set", "-g", governor])
       .status()
       .await
   );
