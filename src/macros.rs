@@ -34,3 +34,17 @@ macro_rules! dump_error_and_ret {
     }
   }
 }
+
+#[allow(unused_macros)]
+#[macro_export]
+macro_rules! dump_error_and_cont {
+  ($e:expr) => {
+    match $e {
+      Err(err) => {
+        eprintln!("ERROR {}:{}> {:?}",  file!(), line!(), err);
+        continue;
+      }
+      Ok(val) => val
+    }
+  }
+}

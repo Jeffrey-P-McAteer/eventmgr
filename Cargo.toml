@@ -20,7 +20,7 @@ bulbb = "0"
 fastrand = "1.9"
 async_zip = { version = "0", features = ["full"] }
 # pulsectl-rs = "0.3"
-# alsa = "0.7"
+alsa = "0.7"
 glob = "0.3"
 
 [profile.release]
