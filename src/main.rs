@@ -197,7 +197,14 @@ async fn set_sway_wallpaper<T: AsRef<str>>(wallpaper: T) {
   if let Ok(mut conn) = swayipc_async::Connection::new().await {
     for output in dump_error_and_ret!( conn.get_outputs().await ) {
       if output.name.contains("eDP-1") || output.name.contains("eDP1") || output.name.contains("edp-1") {
+        // Primary monitor gets wallpaper
         let wallpaper_cmd = format!("output {} bg {} fill", output.name, wallpaper);
+        println!("Running wallpaper cmd: {}", wallpaper_cmd);
+        dump_error_and_ret!( conn.run_command(wallpaper_cmd).await );
+      }
+      else {
+        // All other monitors get black
+        let wallpaper_cmd = format!("output {} bg #000000 solid_color", output.name);
         println!("Running wallpaper cmd: {}", wallpaper_cmd);
         dump_error_and_ret!( conn.run_command(wallpaper_cmd).await );
       }
