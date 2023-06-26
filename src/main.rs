@@ -467,6 +467,22 @@ async fn poll_device_audio_playback() {
 
 async fn on_workspace_focus(workspace_name: &str) {
   println!("Workspace focused = {:?}", workspace_name );
+
+  if workspace_name.contains("7") ||workspace_name.contains("8") || workspace_name.contains("9") {
+    // Likely second monitor, set black BG
+    dump_error!(
+      tokio::process::Command::new("swaymsg")
+        .args(&["output DP-1 bg #000000 solid_color"])
+        .status()
+        .await
+    );
+    dump_error!(
+      tokio::process::Command::new("swaymsg")
+        .args(&["output DP-2 bg #000000 solid_color"])
+        .status()
+        .await
+    );
+  }
 }
 
 // static LAST_CPU_LEVEL: once_cell::sync::Lazy<(&str, usize)> = once_cell::sync::Lazy::new(|| (CPU_GOV_ONDEMAND, 0) );
