@@ -306,8 +306,9 @@ static CURRENTLY_PLAYING_AUDIO: once_cell::sync::Lazy<std::sync::atomic::AtomicB
 );
 
 async fn poll_device_audio_playback() {
-  use alsa::pcm::*;
-  use alsa::{Direction, ValueOr, Error};
+  // use alsa::pcm::*;
+  // use alsa::{Direction, ValueOr, Error};
+  use libpulse_tokio::*;
 
   // Ensure pulse can connect!
   if ! std::env::var("DBUS_SESSION_BUS_ADDRESS").is_ok() {
