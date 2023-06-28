@@ -387,7 +387,7 @@ async fn poll_device_audio_playback() {
             None,                // Use the default server
             "eventmanager",
             stream::Direction::Record,
-            Some("alsa_output.usb-Generic_USB_Audio-00.3.analog-stereo.monitor"), // None,                // Use the default device
+            Some(monitor_dev_name), // None,                // Use the default device
             "audiodetect",             // Description of our stream
             &spec,               // Our sample format
             None,                // Use default channel map
@@ -398,7 +398,7 @@ async fn poll_device_audio_playback() {
               // Record several kilobytes...
               let mut sound_buffer = [0u8; 4096];
 
-              dump_error_and_ret!( simple.read(&mut sound_buffer) );
+              dump_error_and_cont!( simple.read(&mut sound_buffer) );
               let audio_vol_amount = rms_u8(&sound_buffer);
               
               if audio_vol_amount < -500.0 { // "regular" numbers are around -25.0 or so, so significantly below this (incl -inf) is no audio!
