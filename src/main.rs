@@ -314,10 +314,17 @@ static CURRENTLY_PLAYING_AUDIO: once_cell::sync::Lazy<std::sync::atomic::AtomicB
   std::sync::atomic::AtomicBool::new(false)
 );
 
+// From   pactl list | grep -i monitor
+const PULSE_AUDIO_MONITOR_DEVICE_NAMES:  &'static [&'static str] = &[
+  "alsa_output.usb-Generic_USB_Audio-00.3.analog-stereo.monitor", // desk headphones
+  "alsa_output.pci-0000_00_1f.3.3.analog-stereo.monitor", // laptop speakers
+];
+
 async fn poll_device_audio_playback() {
   // use alsa::pcm::*;
   // use alsa::{Direction, ValueOr, Error};
-  use libpulse_tokio::*;
+  use libpulse_simple_binding::Simple;
+  use libpulse_binding::{stream,sample};
 
   // Ensure pulse can connect!
   if ! std::env::var("DBUS_SESSION_BUS_ADDRESS").is_ok() {
@@ -330,7 +337,7 @@ async fn poll_device_audio_playback() {
 
 
   // Calculates RMS (root mean square) as a way to determine volume
-  fn rms(buf: &[i16]) -> f64 {
+  fn rms_i16(buf: &[i16]) -> f64 {
       if buf.len() == 0 { return 0f64; }
       let mut sum = 0f64;
       for &x in buf {
@@ -340,13 +347,23 @@ async fn poll_device_audio_playback() {
       // Convert value to decibels
       20.0 * (r / (i16::MAX as f64)).log10()
   }
+
+  fn rms_u8(buf: &[u8]) -> f64 {
+      if buf.len() == 0 { return 0f64; }
+      let mut sum = 0f64;
+      for &x in buf {
+          sum += (x as f64) * (x as f64);
+      }
+      let r = (sum / (buf.len() as f64)).sqrt();
+      // Convert value to decibels
+      20.0 * (r / (u8::MAX as f64)).log10()
+  }
   
-  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3));
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(4));
 
   interval.tick().await; // Wait 1 tick before recording
 
   // Also attempt to make a ton of files world-writeable
-
   dump_error_and_ret!(
     tokio::process::Command::new("sudo")
       .args(&["-n", "find", "/sys", "-iname", "brightness", "-exec", "chmod", "a+rw", "{}", ";" ])
@@ -357,114 +374,51 @@ async fn poll_device_audio_playback() {
   loop {
     interval.tick().await;
 
-    /*
     dump_error_and_ret!( tokio::task::spawn_blocking(move || {
+      let spec = sample::Spec {
+        format: sample::Format::S16NE,
+        channels: 2,
+        rate: 44100,
+      };
+      if spec.is_valid() {
 
-      // PCM::new("default") gives us the default mic device.
-      
-      // To fix this we iterate everything + collect a vec of the audio_vol_amount measurements across _ALL_ Direction::Playback devices
-      let mut all_audio_vol_amounts = vec![];
+        for monitor_dev_name in PULSE_AUDIO_MONITOR_DEVICE_NAMES {
+          let r = libpulse_simple_binding::Simple::new(
+            None,                // Use the default server
+            "eventmanager",
+            stream::Direction::Record,
+            Some("alsa_output.usb-Generic_USB_Audio-00.3.analog-stereo.monitor"), // None,                // Use the default device
+            "audiodetect",             // Description of our stream
+            &spec,               // Our sample format
+            None,                // Use default channel map
+            None                 // Use default buffering attributes
+          );
+          match r {
+            Ok(simple) => {
+              // Record several kilobytes...
+              let mut sound_buffer = [0u8; 4096];
 
-      for t in &["pcm", "ctl", "rawmidi", "timer", "seq", "hwdep"] {
-        // println!("{} devices:", t);
-        let iterator = alsa::device_name::HintIter::new(None, &*std::ffi::CString::new(*t).unwrap()).unwrap();
-        for a_dev in iterator {
-          if let Some(alsa::Direction::Playback) = a_dev.direction {
-            if let Some(a_dev_name) = a_dev.name.clone() {
-              println!("  {:?}", a_dev);
-
-              let pcm = dump_error_and_cont!( PCM::new(&a_dev_name, Direction::Playback, false) );
-              {
-                  // For this example, we assume 44100Hz, one channel, 16 bit audio.
-                  let hwp = dump_error_and_cont!( HwParams::any(&pcm) );
-                  //dump_error_and_cont!( hwp.set_channels(1) );
-                  if let Err(_e) = hwp.set_channels(1) {
-                    dump_error_and_cont!( hwp.set_channels(0) );
-                  }
-                  dump_error_and_cont!( hwp.set_rate(44100, ValueOr::Nearest) );
-                  dump_error_and_cont!( hwp.set_format(Format::s16()) );
-                  dump_error_and_cont!( hwp.set_access(Access::RWInterleaved) );
-                  dump_error_and_cont!( pcm.hw_params(&hwp) );
+              dump_error_and_ret!( simple.read(&mut sound_buffer) );
+              let audio_vol_amount = rms_u8(&sound_buffer);
+              
+              if audio_vol_amount < -500.0 { // "regular" numbers are around -25.0 or so, so significantly below this (incl -inf) is no audio!
+                CURRENTLY_PLAYING_AUDIO.store(false, std::sync::atomic::Ordering::SeqCst);
               }
-              dump_error_and_cont!( pcm.start() );
+              else {
+                CURRENTLY_PLAYING_AUDIO.store(true, std::sync::atomic::Ordering::SeqCst);
+              }
+              break; // yay read something!
 
-              let io_stream = dump_error_and_cont!( pcm.io_i16() );
-              let mut sound_buffer = [0i16; 8192];
-
-              let num_read_bytes = dump_error_and_cont!( io_stream.readi(&mut sound_buffer) );
-              let audio_vol_amount = rms(&sound_buffer[0..num_read_bytes]);
-
-              all_audio_vol_amounts.push(audio_vol_amount);
-
-
+            }
+            Err(err) => {
+              // Possibly bad monitor_dev_name, it happens they get renamed -_-
+              eprintln!("ERROR {}:{}> {:?}",  file!(), line!(), err);
             }
           }
         }
-      }
-
-      println!("all_audio_vol_amounts = {:?}", all_audio_vol_amounts);
-
-      // New connection each poll, why not?
-      //let pcm = dump_error_and_ret!( PCM::new("default", Direction::Capture, false) );
-      // >>> arecord -l
-      // let pcm = dump_error_and_ret!( PCM::new("plughw:DEV=0,CARD=2", Direction::Capture, false) );
-      // {
-      //     // For this example, we assume 44100Hz, one channel, 16 bit audio.
-      //     let hwp = dump_error_and_ret!( HwParams::any(&pcm) );
-      //     dump_error_and_ret!( hwp.set_channels(1) );
-      //     dump_error_and_ret!( hwp.set_rate(44100, ValueOr::Nearest) );
-      //     dump_error_and_ret!( hwp.set_format(Format::s16()) );
-      //     dump_error_and_ret!( hwp.set_access(Access::RWInterleaved) );
-      //     dump_error_and_ret!( pcm.hw_params(&hwp) );
-      // }
-      // dump_error_and_ret!( pcm.start() );
-
-      // let io_stream = dump_error_and_ret!( pcm.io_i16() );
-      // let mut sound_buffer = [0i16; 8192];
-
-      // let num_read_bytes = dump_error_and_ret!( io_stream.readi(&mut sound_buffer) );
-      // let audio_vol_amount = rms(&sound_buffer[0..num_read_bytes]);
-
-      // println!("audio_vol_amount = {}", audio_vol_amount);
-
-      let mut one_is_playing_audio = false;
-      for audio_vol_amount in all_audio_vol_amounts {
-        if audio_vol_amount < -500.0 { // "regular" numbers are around -25.0 or so, so significantly below this (incl -inf) is no audio!
-          //CURRENTLY_PLAYING_AUDIO.store(false, std::sync::atomic::Ordering::SeqCst);
-        }
-        else {
-          one_is_playing_audio = true;
-          break;
-        }
-      }
-
-      if one_is_playing_audio {
-        CURRENTLY_PLAYING_AUDIO.store(true, std::sync::atomic::Ordering::SeqCst);
-      }
-      else {
-        CURRENTLY_PLAYING_AUDIO.store(false, std::sync::atomic::Ordering::SeqCst);
       }
 
     }).await );
-    */
-    
-    // Walk /proc/asound/card*/pcm*/sub*/status
-    // Looking for "state: RUNNING"
-    let mut saw_one_running = false;
-    if let Ok(iterator) = glob::glob("/proc/asound/card*/pcm*/sub*/status") {
-      for status_entry in iterator {
-        if let Ok(status_entry_path) = status_entry {
-          if let Ok(status_contents) = tokio::fs::read_to_string(status_entry_path).await {
-            if status_contents.contains("RUNNING") || status_contents.contains("running") {
-              saw_one_running = true;
-              break;
-            }
-          }
-        }
-      }
-    }
-
-    CURRENTLY_PLAYING_AUDIO.store(saw_one_running, std::sync::atomic::Ordering::SeqCst);
 
 
     darken_kbd_if_video_focused_and_audio_playing().await;

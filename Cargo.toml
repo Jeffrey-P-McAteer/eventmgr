@@ -21,8 +21,10 @@ fastrand = "1.9"
 async_zip = { version = "0", features = ["full"] }
 # pulsectl-rs = "0.3"
 # alsa = "0.7"
-libpulse-tokio = "0.1"
+libpulse-binding = "2"
+libpulse-simple-binding = "2"
 glob = "0.3"
+
 
 [profile.release]
 strip = true

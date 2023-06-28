@@ -502,7 +502,8 @@ dependencies = [
  "fastrand",
  "futures",
  "glob",
- "libpulse-tokio",
+ "libpulse-binding",
+ "libpulse-simple-binding",
  "mountinfo",
  "nix",
  "notify-rust",
@@ -809,6 +810,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "libpulse-simple-binding"
+version = "2.27.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5ced94199e6e44133431374e4043f34e1f0697ebfb7b7d6c244a65bfaedf0e31"
+dependencies = [
+ "libpulse-binding",
+ "libpulse-simple-sys",
+ "libpulse-sys",
+]
+
+[[package]]
+name = "libpulse-simple-sys"
+version = "1.20.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "84e423d9c619c908ce9b4916080e65ab586ca55b8c4939379f15e6e72fb43842"
+dependencies = [
+ "libpulse-sys",
+ "pkg-config",
+]
+
+[[package]]
 name = "libpulse-sys"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -819,18 +841,6 @@ dependencies = [
  "num-traits",
  "pkg-config",
  "winapi",
-]
-
-[[package]]
-name = "libpulse-tokio"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "944346c5521043584d853e5bed884862c762ef56e75bb81e19824f2f1306a241"
-dependencies = [
- "futures-lite",
- "libc",
- "libpulse-binding",
- "tokio",
 ]
 
 [[package]]
