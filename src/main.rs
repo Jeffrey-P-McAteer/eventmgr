@@ -202,12 +202,6 @@ async fn set_sway_wallpaper<T: AsRef<str>>(wallpaper: T) {
         println!("Running wallpaper cmd: {}", wallpaper_cmd);
         dump_error_and_ret!( conn.run_command(wallpaper_cmd).await );
       }
-      else {
-        // All other monitors get black
-        let wallpaper_cmd = format!("output {} bg #000000 solid_color", output.name);
-        println!("Running wallpaper cmd: {}", wallpaper_cmd);
-        dump_error_and_ret!( conn.run_command(wallpaper_cmd).await );
-      }
     }
   }
 }
