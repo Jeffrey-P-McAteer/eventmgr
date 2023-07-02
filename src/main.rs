@@ -1264,7 +1264,7 @@ async fn unmount_all_disks() {
     }
   }
 
-  for _ in 0..3 { // just try several times in case a sub-directory is mounted?
+  for _ in 0..4 { // just try several times in case a sub-directory is mounted?
     for possibly_mounted_disk_path in all_possible_disk_mount_paths.iter() {
       if is_mounted(possibly_mounted_disk_path).await {
         dump_error!(
