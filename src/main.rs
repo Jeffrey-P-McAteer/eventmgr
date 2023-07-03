@@ -1403,6 +1403,10 @@ async fn mount_swap_files() {
   loop {
     interval.tick().await;
 
+    if ! swap_file_dir.exists() {
+      break; // It could happen, so re-start future & pick up the other card.
+    }
+
     // See https://docs.rs/nix/latest/nix/sys/sysinfo/struct.SysInfo.html
     //let info = nix::sys::sysinfo();
     if let Ok(info) = nix::sys::sysinfo::sysinfo() {
