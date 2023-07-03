@@ -875,7 +875,7 @@ static MOUNT_DISKS: phf::Map<&'static str, &[(&'static str, &'static str)] > = p
 
   "/dev/disk/by-label/ai-models" =>
     &[
-      ("/j/proj/llm-experiments/ai_models", "defaults,rw"),
+      ("/mnt/ai-models", "defaults,rw,uid=1000,gid=1000"),
       // sudo ntfsfix /dev/disk/by-label/ai-models
     ]
 
