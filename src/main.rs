@@ -688,6 +688,9 @@ async fn bind_mount_azure_data() {
     ("/j/.cache/mozilla/firefox", "azure_sys/j_.cache_mozilla_firefox"), // The only folder in here should be jeff_2023, corresponding to the PROFILE under .mozilla which must never be removed.
     ("/j/downloads",              "azure_sys/j_downloads"),
 
+    // rsync -av /j/proj/llm-experiments/ai_models/ /mnt/azure-data/azure_sys/llm_experiments_ai_models # To pre-populate
+    //("/j/proj/llm-experiments/ai_models",              "azure_sys/llm_experiments_ai_models"),
+
   ];
 
   let build_dir_scan_folders = &[
@@ -869,6 +872,12 @@ static MOUNT_DISKS: phf::Map<&'static str, &[(&'static str, &'static str)] > = p
       ("/mnt/iphone-vox",  "ifuse --documents com.coppertino.VoxMobile -o allow_other,rw /mnt/iphone-vox"),
       ("/mnt/iphone-vox.has-been-synced",  "sleep 0.5 ; mount | grep -q iphone-vox && sudo -u jeffrey rsync -avxHAX --no-owner --no-group --no-perms --size-only --progress /j/music/ /mnt/iphone-vox/ ")
     ],
+
+  "/dev/disk/by-label/ai-models" =>
+    &[
+      ("/j/proj/llm-experiments/ai_models", "defaults,rw"),
+      // sudo ntfsfix /dev/disk/by-label/ai-models
+    ]
 
 };
 
@@ -1469,7 +1478,7 @@ async fn mount_swap_files() {
 
       // // Also test if system is under load & if do bump CPU?
       let (one_m, five_m, fifteen_m) = info.load_average();
-      if one_m > 3.6 {
+      if one_m > 3.8 && five_m > 2.8 {
         // If > 3 cores are saturated, try to go to high performance
         on_wanted_cpu_level(CPU_GOV_PERFORMANCE).await;
       }
