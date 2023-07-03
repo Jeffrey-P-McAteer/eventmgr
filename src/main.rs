@@ -875,6 +875,7 @@ static MOUNT_DISKS: phf::Map<&'static str, &[(&'static str, &'static str)] > = p
 
   "/dev/disk/by-label/ai-models" =>
     &[
+      ("/mnt/ai-models.has-been-ntfsfixed", "sleep 0.1 ; sudo ntfsfix /dev/disk/by-label/ai-models || true"),
       ("/mnt/ai-models", "defaults,rw,uid=1000,gid=1000"),
       // sudo ntfsfix /dev/disk/by-label/ai-models
     ]
