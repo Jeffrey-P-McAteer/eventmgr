@@ -1,4 +1,6 @@
 
+#![allow(unused_imports, )]
+
 use futures::prelude::*;
 
 use std::borrow::Borrow;
@@ -165,15 +167,20 @@ async fn handle_sway_msgs() {
       match event {
         swayipc_async::Event::Window(window_evt) => {
           if window_evt.change == swayipc_async::WindowChange::Focus {
+            let window_evt_container = window_evt.container.clone();
             let name = window_evt.container.name.clone().unwrap_or("".to_string());
-            on_window_focus(&name, &window_evt.container).await;
+            tokio::task::spawn(async move {
+              on_window_focus(&name, &window_evt_container).await;
+            });
           }
         }
         swayipc_async::Event::Workspace(workspace_evt) => {
           if workspace_evt.change == swayipc_async::WorkspaceChange::Focus {
             if let Some(focused_ws) = workspace_evt.current {
-              let name = focused_ws.name.unwrap_or("".to_string());
-              on_workspace_focus(&name).await;
+              let name = focused_ws.name.clone().unwrap_or("".to_string());
+              tokio::task::spawn(async move {
+                on_workspace_focus(&name).await;
+              });
             }
           }
 
