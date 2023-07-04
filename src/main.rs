@@ -1059,8 +1059,23 @@ async fn mount_net_shares() {
               tokio::net::lookup_host(share_host)
             ).await;
             if let Ok(dns_results) = dns_results {
-              can_ping_share_host = Some(true); // got results
-              host_missed_pings.insert(share_host, 0); // clear missed pings
+              if let Ok(dns_results) = dns_results {
+                let mut num_ips = 0;
+                for dns_result in dns_results {
+                  println!("dns_result = {:?}", dns_result.ip() );
+                  num_ips += 1;
+                }
+                if num_ips > 0 {
+                  can_ping_share_host = Some(true); // got results
+                  host_missed_pings.insert(share_host, 0); // clear missed pings
+                }
+                else {
+                  can_ping_share_host = Some(false); // no data!
+                }
+              }
+              else {
+                can_ping_share_host = Some(false); // no data!
+              }
             }
             else {
               can_ping_share_host = Some(false); // timeout!
