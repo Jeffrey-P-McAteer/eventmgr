@@ -69,6 +69,9 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
         if new_brightness < 1 {
           new_brightness = 1;
         }
+        if new_brightness > 24242 {
+          new_brightness = 24242; // For intel monitor
+        }
 
         println!("new_brightness={}", new_brightness);
         if let Err(e) = monitor.set_brightness(new_brightness) {
@@ -119,6 +122,21 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
         .status()
     );
 
+    if let Some(wanted_ddcutil_brightness_val) = wanted_ddcutil_brightness_val {
+      clear_notifications_sync();
+      // show first existing file from wanted_ddcutil_brightness_val -> 100
+      for icon_brightness_v in wanted_ddcutil_brightness_val..120 {
+        let icon_file = format!("/j/bins/brightness-icons/levels/{}.png", icon_brightness_v);
+        if std::path::Path::new(&icon_file).exists() {
+          notify_icon_only_sync(&icon_file);
+          break;
+        }
+      }
+
+      //notify_icon_sync("/j/downloads/precisely-adjust-brightness-on-mac.png", format!("Brightness: {}", wanted_ddcutil_brightness_val).as_str());
+      // notify_icon_only_sync("/j/downloads/precisely-adjust-brightness-on-mac.png");
+
+    }
 
     return true;
   }

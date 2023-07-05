@@ -70,14 +70,16 @@ async fn eventmgr() {
   }
 }
 
+const NOTIFICATION_TIMEOUT_MS: u32 = 4600;
+
 async fn notify(msg: &str) {
   println!("{}", msg);
   dump_error!(
     notify_rust::Notification::new()
-      .summary("EventMgr")
+      //.summary("EventMgr")
       .body(msg)
       //.icon("firefox")
-      .timeout(notify_rust::Timeout::Milliseconds(6400)) //milliseconds
+      .timeout(notify_rust::Timeout::Milliseconds(NOTIFICATION_TIMEOUT_MS)) //milliseconds
       .show()
   );
 }
@@ -86,12 +88,72 @@ fn notify_sync(msg: &str) {
   println!("{}", msg);
   dump_error!(
     notify_rust::Notification::new()
-      .summary("EventMgr")
+      //.summary("EventMgr")
       .body(msg)
       //.icon("firefox")
-      .timeout(notify_rust::Timeout::Milliseconds(6400)) //milliseconds
+      .timeout(notify_rust::Timeout::Milliseconds(NOTIFICATION_TIMEOUT_MS)) //milliseconds
       .show()
   );
+}
+
+
+async fn notify_icon(icon: &str, msg: &str) {
+  println!("{}", msg);
+  dump_error!(
+    notify_rust::Notification::new()
+      //.summary("EventMgr")
+      .body(msg)
+      .icon(icon)
+      .timeout(notify_rust::Timeout::Milliseconds(NOTIFICATION_TIMEOUT_MS)) //milliseconds
+      .show()
+  );
+}
+
+fn notify_icon_sync(icon: &str, msg: &str) {
+  println!("{}", msg);
+  dump_error!(
+    notify_rust::Notification::new()
+      //.summary("EventMgr")
+      .body(msg)
+      .icon(icon)
+      .timeout(notify_rust::Timeout::Milliseconds(NOTIFICATION_TIMEOUT_MS)) //milliseconds
+      .show()
+  );
+}
+
+
+async fn notify_icon_only(icon: &str) {
+  dump_error!(
+    tokio::process::Command::new("dunstify")
+      .args(&["--appname=icononly", format!("--icon={}", icon).as_str(), "icon only" ])
+      .status()
+      .await
+  );
+}
+
+fn notify_icon_only_sync(icon: &str) {
+  dump_error!(
+    std::process::Command::new("dunstify")
+      .args(&["--appname=icononly", format!("--icon={}", icon).as_str(), "icon only" ])
+      .status()
+  );
+}
+
+async fn clear_notifications() {
+  dump_error!(
+    tokio::process::Command::new("dunstctl")
+      .args(&["close-all"])
+      .status()
+      .await
+  );
+}
+
+fn clear_notifications_sync() {
+  dump_error!(
+      std::process::Command::new("dunstctl")
+        .args(&["close-all"])
+        .status()
+    );
 }
 
 async fn handle_exit_signals() {
