@@ -125,7 +125,7 @@ fn notify_icon_sync(icon: &str, msg: &str) {
 async fn notify_icon_only(icon: &str) {
   dump_error!(
     tokio::process::Command::new("dunstify")
-      .args(&["--appname=icononly", format!("--icon={}", icon).as_str(), "icon only" ])
+      .args(&["--appname=icononly", "--timeout=850", format!("--icon={}", icon).as_str(), "icon only" ])
       .status()
       .await
   );
@@ -134,7 +134,7 @@ async fn notify_icon_only(icon: &str) {
 fn notify_icon_only_sync(icon: &str) {
   dump_error!(
     std::process::Command::new("dunstify")
-      .args(&["--appname=icononly", format!("--icon={}", icon).as_str(), "icon only" ])
+      .args(&["--appname=icononly", "--timeout=850", format!("--icon={}", icon).as_str(), "icon only" ])
       .status()
   );
 }
