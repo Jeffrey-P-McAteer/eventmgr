@@ -125,7 +125,7 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
     if let Some(wanted_ddcutil_brightness_val) = wanted_ddcutil_brightness_val {
       clear_notifications_sync();
       // show first existing file from wanted_ddcutil_brightness_val -> 100
-      for icon_brightness_v in wanted_ddcutil_brightness_val..120 {
+      for icon_brightness_v in (wanted_ddcutil_brightness_val-1)..120 {
         let icon_file = format!("/j/bins/brightness-icons/levels/{}.png", icon_brightness_v);
         if std::path::Path::new(&icon_file).exists() {
           notify_icon_only_sync(&icon_file);
