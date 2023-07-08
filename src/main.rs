@@ -70,7 +70,7 @@ async fn eventmgr() {
   }
 }
 
-const NOTIFICATION_TIMEOUT_MS: u32 = 4600;
+const NOTIFICATION_TIMEOUT_MS: u32 = 2600;
 
 async fn notify(msg: &str) {
   println!("{}", msg);
