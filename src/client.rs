@@ -140,7 +140,7 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
     //   }
     // }
 
-    notify_sync(format!("Brightness: {}", ((intel_set_brightness as f32 / 24242.0) * 100.0 ) as usize ).as_str());
+    notify_sync(format!("Brightness: {:.2}", ((intel_set_brightness as f32 / 24242.0) * 100.0 ) ).as_str());
 
     return true;
   }
