@@ -48,6 +48,9 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
     else {
       brightness_multiplier = 1.25;
     }
+
+    let mut intel_set_brightness = 999;
+
     // Adjust all devices which present under /sys
     if let Ok(monitors) = bulbb::monitor::MonitorDevice::get_all_monitor_devices() {
       for monitor in monitors {
@@ -74,6 +77,9 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
         }
 
         println!("new_brightness={}", new_brightness);
+
+        intel_set_brightness = new_brightness;
+
         if let Err(e) = monitor.set_brightness(new_brightness) {
           println!("Error setting brightness: {:?}", e);
           dump_error!( // Give everyone write access
@@ -122,21 +128,19 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
         .status()
     );
 
-    if let Some(wanted_ddcutil_brightness_val) = wanted_ddcutil_brightness_val {
-      clear_notifications_sync();
-      // show first existing file from wanted_ddcutil_brightness_val -> 100
-      for icon_brightness_v in (wanted_ddcutil_brightness_val-1)..120 {
-        let icon_file = format!("/j/bins/brightness-icons/levels/{}.png", icon_brightness_v);
-        if std::path::Path::new(&icon_file).exists() {
-          notify_icon_only_sync(&icon_file);
-          break;
-        }
-      }
+    // if let Some(wanted_ddcutil_brightness_val) = wanted_ddcutil_brightness_val {
+    //   clear_notifications_sync();
+    //   // show first existing file from wanted_ddcutil_brightness_val -> 100
+    //   for icon_brightness_v in (wanted_ddcutil_brightness_val-1)..120 {
+    //     let icon_file = format!("/j/bins/brightness-icons/levels/{}.png", icon_brightness_v);
+    //     if std::path::Path::new(&icon_file).exists() {
+    //       notify_icon_only_sync(&icon_file);
+    //       break;
+    //     }
+    //   }
+    // }
 
-      //notify_icon_sync("/j/downloads/precisely-adjust-brightness-on-mac.png", format!("Brightness: {}", wanted_ddcutil_brightness_val).as_str());
-      // notify_icon_only_sync("/j/downloads/precisely-adjust-brightness-on-mac.png");
-
-    }
+    notify_sync(format!("Brightness: {}", ((intel_set_brightness as f32 / 24242.0) * 100.0 ) as usize ).as_str());
 
     return true;
   }
