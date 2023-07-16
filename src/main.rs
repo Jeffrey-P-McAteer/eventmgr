@@ -1409,7 +1409,7 @@ async fn unpause_proc(name: &str) {
 }
 
 async fn partial_resume_paused_procs() {
-  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(4));
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(2));
   loop {
     interval.tick().await;
 
@@ -1432,7 +1432,7 @@ async fn partial_resume_paused_procs() {
     }
 
     // Delay for 0.2s to allow continued procs to run
-    tokio::time::sleep( std::time::Duration::from_millis(250) ).await;
+    tokio::time::sleep( std::time::Duration::from_millis(150) ).await;
 
     for i in 0..PAUSED_PROC_PIDS.len() {
       let proc_pid = PAUSED_PROC_PIDS[i].load(std::sync::atomic::Ordering::Relaxed);
