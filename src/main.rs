@@ -978,7 +978,9 @@ async fn mount_disks() {
       for (disk_mount_path, disk_mount_opts) in disk_mount_items.iter() {
         if std::path::Path::new(disk_block_device).exists() {
           if ! is_mounted(disk_mount_path).await {
+            let disk_mount_path_existed: bool;
             if ! std::path::Path::new(disk_mount_path).exists() {
+              disk_mount_path_existed = false;
               println!("Because {:?} exists we are mounting {:?} with options {:?}", disk_block_device, disk_mount_path, disk_mount_opts);
               // Sudo create it
               dump_error!(
@@ -996,10 +998,13 @@ async fn mount_disks() {
                   .await
               );
             }
+            else {
+              disk_mount_path_existed = true;
+            }
 
             // We're still not mounted, do the mount!
             // If there are space chars in disk_mount_opts run as a command, else pass to "mount"
-            if disk_mount_opts.contains(" ") {
+            if disk_mount_opts.contains(" ") && !disk_mount_path_existed {
               dump_error!(
                 tokio::process::Command::new("sudo")
                   .args(&["-n", "sh", "-c", disk_mount_opts])
@@ -1099,6 +1104,7 @@ async fn mount_net_shares() {
     }
     Err(e) => {
       println!("e reading /j/.cache/machome_jeff_pw : {:?}", e);
+      return;
     }
   }
 
