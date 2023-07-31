@@ -332,10 +332,23 @@ static CURRENT_KBD_LIGHT_VAL: once_cell::sync::Lazy<std::sync::atomic::AtomicU32
   std::sync::atomic::AtomicU32::new(5)
 );
 
+// Increments up to 2 on audio playing, decrements down to 0 on no audio. We turn
+// keyboard on when no audio + CURRENT_KBD_AUDIO_SEMAPHOR == 0
+static CURRENT_KBD_AUDIO_SEMAPHOR: once_cell::sync::Lazy<std::sync::atomic::AtomicU32> = once_cell::sync::Lazy::new(||
+  std::sync::atomic::AtomicU32::new(0)
+);
+
 async fn darken_kbd_if_video_focused_and_audio_playing() {
   let currently_playing_audio = CURRENTLY_PLAYING_AUDIO.load(std::sync::atomic::Ordering::SeqCst);
+  let audio_semaphor = CURRENT_KBD_AUDIO_SEMAPHOR.load(std::sync::atomic::Ordering::SeqCst);
   if ! currently_playing_audio {
-    set_kbd_light(1).await;
+    if audio_semaphor == 0 {
+      set_kbd_light(1).await;
+    }
+    else {
+      // Go down by 1
+      CURRENT_KBD_AUDIO_SEMAPHOR.store(audio_semaphor.saturating_sub(1), std::sync::atomic::Ordering::SeqCst);
+    }
     return;
   }
   // We are playing audio!
@@ -348,9 +361,19 @@ async fn darken_kbd_if_video_focused_and_audio_playing() {
 
   if is_video {
     set_kbd_light(0).await;
+    // Increment by 1 until we hit 2
+    if audio_semaphor < 2 {
+      CURRENT_KBD_AUDIO_SEMAPHOR.store(audio_semaphor + 1, std::sync::atomic::Ordering::SeqCst);
+    }
   }
   else {
-    set_kbd_light(1).await;
+    if audio_semaphor == 0 {
+      set_kbd_light(1).await;
+    }
+    else {
+      // Go down by 1
+      CURRENT_KBD_AUDIO_SEMAPHOR.store(audio_semaphor.saturating_sub(1), std::sync::atomic::Ordering::SeqCst);
+    }
   }
 
 }
