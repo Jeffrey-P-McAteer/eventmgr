@@ -482,7 +482,7 @@ async fn poll_device_audio_playback() {
           match r {
             Ok(simple) => {
               // Record several kilobytes...
-              let mut sound_buffer = [0u8; 4096];
+              let mut sound_buffer = [0u8; 16384];
 
               dump_error_and_cont!( simple.read(&mut sound_buffer) );
               let audio_vol_amount = rms_u8(&sound_buffer);
