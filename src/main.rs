@@ -445,7 +445,7 @@ async fn poll_device_audio_playback() {
       20.0 * (r / (u8::MAX as f64)).log10()
   }
   
-  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(4));
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(950));
 
   interval.tick().await; // Wait 1 tick before recording
 
