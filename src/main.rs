@@ -1058,6 +1058,15 @@ async fn mount_disks() {
                 .await
             );
 
+            if std::path::Path::new("/System Volume Information").exists() { // do same for root drive
+              dump_error!(
+                tokio::process::Command::new("sudo")
+                  .args(&["-n", "rm", "-rf", "/$RECYCLE.BIN", "/System Volume Information", ])
+                  .status()
+                  .await
+              );
+            }
+
             // sudo rm -rf /\$RECYCLE.BIN /System\ Volume\ Information
 
           }
