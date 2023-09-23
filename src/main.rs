@@ -586,7 +586,7 @@ pub const DOWNLOAD_QUARANTINE_SECS: u64 = (24 + 12) * (60 * 60);
 pub const QUARANTINE_DELETE_SECS: u64 = (3 * 24) * (60 * 60);
 
 async fn poll_downloads() {
-  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(45));
   loop {
     interval.tick().await;
 
