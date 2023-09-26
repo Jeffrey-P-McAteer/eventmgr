@@ -43,10 +43,10 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
 
     let brightness_multiplier: f64;
     if args.contains(&"brightness-down".to_string()) {
-      brightness_multiplier = 0.80;
+      brightness_multiplier = 0.75;
     }
     else {
-      brightness_multiplier = 1.25;
+      brightness_multiplier = 1.30;
     }
 
     let mut intel_set_brightness = 999;
@@ -84,7 +84,7 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
           println!("Error setting brightness: {:?}", e);
           dump_error!( // Give everyone write access
             std::process::Command::new("sudo")
-              .args(&["sh", "-c", "chmod a+rw /sys/class/backlight/intel_backlight/*"])
+              .args(&["sh", "-c", "chmod a+rw /sys/class/backlight/*/*"])
               .status()
           );
         }
