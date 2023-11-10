@@ -59,7 +59,7 @@ async fn eventmgr() {
 
   // We check for failed tasks and re-start them every 6 seconds
   let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(6));
-  
+
   loop {
     interval.tick().await;
 
@@ -193,7 +193,7 @@ async fn handle_sway_msgs() {
   if ! (std::env::var("I3SOCK").is_ok() || std::env::var("SWAYSOCK").is_ok()) {
     // Go fish
     println!("Do not have I3SOCK or SWAYSOCK defined, searching for a socket under /run/user or /tmp...");
-    
+
     let vars_dirs_and_search_fragments = &[
       ("SWAYSOCK", "/run/user/1000", "sway-ipc"),
       ("I3SOCK",   "/tmp",           "ipc-socket"),
@@ -444,7 +444,7 @@ async fn poll_device_audio_playback() {
       // Convert value to decibels
       20.0 * (r / (u8::MAX as f64)).log10()
   }
-  
+
   let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(950));
 
   interval.tick().await; // Wait 1 tick before recording
@@ -486,7 +486,7 @@ async fn poll_device_audio_playback() {
 
               dump_error_and_cont!( simple.read(&mut sound_buffer) );
               let audio_vol_amount = rms_u8(&sound_buffer);
-              
+
               if audio_vol_amount < -500.0 { // "regular" numbers are around -25.0 or so, so significantly below this (incl -inf) is no audio!
                 CURRENTLY_PLAYING_AUDIO.store(false, std::sync::atomic::Ordering::SeqCst);
               }
@@ -612,7 +612,7 @@ async fn poll_downloads() {
           }
         }
       }
-      
+
     }
 
     // Now scan quarantined files and delete old ones
@@ -681,7 +681,7 @@ async fn poll_ff_bookmarks() {
 
     // See https://crates.io/crates/marionette
 
-    
+
   }
 }
 
@@ -746,7 +746,7 @@ async fn poll_wallpaper_rotation() {
       }
     }
 
-    
+
   }
 }
 
@@ -762,7 +762,7 @@ async fn poll_check_dexcom() {
         .status()
         .await
     );
-    
+
   }
 }
 
@@ -856,7 +856,7 @@ async fn bind_mount_azure_data() {
 
   loop {
     interval.tick().await;
-    
+
     // If the block device exists & we have not mounted to it, do that.
     if azure_data_block_dev.exists() && azure_data_mount.exists() && data_mount_points_mounted != 'd' {
       // bind-mount all folders in data_mount_points
@@ -932,7 +932,7 @@ async fn bind_mount_azure_data() {
 
 
 static MOUNT_DISKS: phf::Map<&'static str, &[(&'static str, &'static str)] > = phf::phf_map! {
-  "/dev/disk/by-partuuid/8f3ca68c-d031-2d41-849c-be5d9602e920" => 
+  "/dev/disk/by-partuuid/8f3ca68c-d031-2d41-849c-be5d9602e920" =>
     &[
       ("/mnt/azure-data", "defaults,rw,autodefrag,compress=zstd:11,commit=300,nodatasum"),
       // sudo rmdir /mnt/azure-data/swap-files ; sudo btrfs subvolume create '/mnt/azure-data/@swap-files' ; sudo btrfs property set /mnt/azure-data/swap-files compression none
@@ -943,17 +943,17 @@ static MOUNT_DISKS: phf::Map<&'static str, &[(&'static str, &'static str)] > = p
   //"/dev/disk/by-partuuid/53da446a-2409-ca42-8337-12389dc70563" =>  // Retired for now
   //  &[("/mnt/scratch", "auto,rw,noatime,data=writeback,barrier=0,nobh,errors=remount-ro")],
 
-  "/dev/disk/by-partuuid/e08214f5-cfc5-4252-afee-505dfcd23808" => 
+  "/dev/disk/by-partuuid/e08214f5-cfc5-4252-afee-505dfcd23808" =>
     &[
       ("/mnt/scratch", "defaults,rw,autodefrag,compress=zstd:11,commit=300,nodatasum"),
       // sudo rmdir /mnt/scratch/swap-files ; sudo btrfs subvolume create '/mnt/scratch/@swap-files' ; sudo btrfs property set /mnt/scratch/swap-files compression none
       ("/mnt/scratch/swap-files", "defaults,rw,noatime,nodatacow,subvol=@swap-files,nodatasum")
     ],
 
-  "/dev/disk/by-partuuid/435cfadf-6a6e-4acf-a784-ab3f792ee8c6" => 
+  "/dev/disk/by-partuuid/435cfadf-6a6e-4acf-a784-ab3f792ee8c6" =>
     &[("/mnt/wda", "auto,rw")],
 
-  "/dev/disk/by-partuuid/ee209a96-9170-534a-9ba2-ea0a34ac156e" => 
+  "/dev/disk/by-partuuid/ee209a96-9170-534a-9ba2-ea0a34ac156e" =>
     &[("/mnt/wdb", "auto,rw")],
 
   // Not a block device, but we special-case any "options string with space chars"
@@ -1097,7 +1097,7 @@ async fn mount_disks() {
 
 
 static MOUNT_NET_SHARES: phf::Map<&'static str, &[(&'static str, &'static str)] > = phf::phf_map! {
-  "machome.local" => 
+  "machome.local" =>
     &[
       ("/mnt/machome/video",         "mount -t cifs -o username=jeffrey,password=$MACHOME_JEFF_PW,uid=1000,gid=1000 //machome.local/video /mnt/machome/video"),
       ("/mnt/machome/photo",         "mount -t cifs -o username=jeffrey,password=$MACHOME_JEFF_PW,uid=1000,gid=1000 //machome.local/photo /mnt/machome/photo"),
@@ -1184,7 +1184,7 @@ async fn mount_net_shares() {
           if let Some(can_ping_share_host) = can_ping_share_host {
             if can_ping_share_host {
               // Not mounted but can ping, mount!
-              
+
               println!("We can ping {} but have not yet mounted {}, mounting...", share_host, disk_mount_path);
 
               dump_error!(
@@ -1252,7 +1252,7 @@ async fn mount_net_shares() {
         }
       }
     }
-    
+
 
   }
 }
@@ -1490,7 +1490,7 @@ async fn partial_resume_paused_procs() {
 
 async fn mount_swap_files() {
   let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(6));
-  
+
   interval.tick().await;
 
   let external_scratch_usb_disk = "/dev/disk/by-partuuid/e08214f5-cfc5-4252-afee-505dfcd23808";
@@ -1521,7 +1521,7 @@ async fn mount_swap_files() {
   // If memory use including swap is under 60%, we remove swap until this is 0.
   // Swap files are named {swap_file_dir}/swap-{num_swap_files_added}
   let mut num_swap_files_added = 0;
-  
+
   loop {
     interval.tick().await;
 
@@ -1633,7 +1633,7 @@ async fn turn_off_misc_lights() {
   let files_to_write_0_to = &[
     "/sys/devices/platform/thinkpad_acpi/leds/platform::micmute/brightness",
   ];
-  
+
   loop {
     interval.tick().await;
 
