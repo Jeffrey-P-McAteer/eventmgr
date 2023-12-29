@@ -607,7 +607,7 @@ async fn poll_downloads() {
             if age_s > DOWNLOAD_QUARANTINE_SECS {
               println!("Quarantining {:.2}-hour-old file {}", (age_s as f64 / (60.0 * 60.0) ), entry.file_name().to_string_lossy());
               let dst_file = std::path::Path::new("/j/downloads/q").join( entry.file_name() );
-              dump_error_and_ret!( tokio::fs::rename(entry.path(), dst_file).await );
+              dump_error_and_cont!( tokio::fs::rename(entry.path(), dst_file).await );
             }
           }
         }
