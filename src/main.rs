@@ -863,7 +863,7 @@ async fn bind_mount_azure_data() {
       for (root_fs_dir, data_mnt_path) in data_mount_points.iter() {
         let data_mnt_path = azure_data_mount.join(data_mnt_path);
         if is_mounted(root_fs_dir).await {
-          dump_error_and_ret!(
+          dump_error_and_cont!(
             tokio::process::Command::new("sudo")
               .args(&["-n", "umount", root_fs_dir])
               .status()
@@ -902,7 +902,7 @@ async fn bind_mount_azure_data() {
       // Bind-mount our /tmp/ to the folders to avoid data falling on to the root FS
       for (root_fs_dir, data_mnt_path) in data_mount_points.iter() {
         if is_mounted(root_fs_dir).await {
-          dump_error_and_ret!(
+          dump_error_and_cont!(
             tokio::process::Command::new("sudo")
               .args(&["-n", "umount", root_fs_dir])
               .status()
