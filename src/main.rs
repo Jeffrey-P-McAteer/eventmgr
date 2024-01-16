@@ -47,7 +47,7 @@ async fn eventmgr() {
     PersistentAsyncTask::new("poll_downloads",                   ||{ tokio::task::spawn(poll_downloads()) }),
     PersistentAsyncTask::new("poll_ff_bookmarks",                ||{ tokio::task::spawn(poll_ff_bookmarks()) }),
     PersistentAsyncTask::new("poll_wallpaper_rotation",          ||{ tokio::task::spawn(poll_wallpaper_rotation()) }),
-    PersistentAsyncTask::new("poll_check_dexcom",                ||{ tokio::task::spawn(poll_check_dexcom()) }),
+    PersistentAsyncTask::new("poll_check_glucose",                ||{ tokio::task::spawn(poll_check_glucose()) }),
     PersistentAsyncTask::new("mount_disks",                      ||{ tokio::task::spawn(mount_disks()) }),
     PersistentAsyncTask::new("mount_net_shares",                 ||{ tokio::task::spawn(mount_net_shares()) }),
     PersistentAsyncTask::new("bump_cpu_for_performance_procs",   ||{ tokio::task::spawn(bump_cpu_for_performance_procs()) }),
@@ -750,15 +750,15 @@ async fn poll_wallpaper_rotation() {
   }
 }
 
-async fn poll_check_dexcom() {
+async fn poll_check_glucose() {
   let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(120));
   loop {
     interval.tick().await;
 
-    // dexcom /tmp/dexcom.txt
+    // glucose /tmp/glucose.txt
     dump_error_and_ret!(
-      tokio::process::Command::new("/j/bin/dexcom")
-        .args(&["/tmp/dexcom.txt"])
+      tokio::process::Command::new("/j/bin/glucose")
+        .args(&["/tmp/glucose.txt"])
         .status()
         .await
     );
