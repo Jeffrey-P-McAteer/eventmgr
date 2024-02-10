@@ -1155,7 +1155,7 @@ async fn mount_net_shares() {
           // Can we ping share_host?
           if can_ping_share_host.is_none() {
             let dns_results = tokio::time::timeout(
-              std::time::Duration::from_millis(4500),
+              std::time::Duration::from_millis(12500),
               tokio::net::lookup_host(share_host)
             ).await;
             if let Ok(dns_results) = dns_results {
