@@ -265,11 +265,12 @@ async fn set_sway_wallpaper<T: AsRef<str>>(wallpaper: T) {
   let wallpaper = wallpaper.as_ref();
   if let Ok(mut conn) = swayipc_async::Connection::new().await {
     for output in dump_error_and_ret!( conn.get_outputs().await ) {
-      if output.name.contains("eDP-1") || output.name.contains("eDP1") || output.name.contains("edp-1") {
+      //if output.name.contains("eDP-1") || output.name.contains("eDP1") || output.name.contains("edp-1") {
         // Primary monitor gets wallpaper
+      { // ALL monitors get wallpaper!
         let wallpaper_cmd = format!("output {} bg {} fill", output.name, wallpaper);
         println!("Running wallpaper cmd: {}", wallpaper_cmd);
-        dump_error_and_ret!( conn.run_command(wallpaper_cmd).await );
+        dump_error_and_cont!( conn.run_command(wallpaper_cmd).await );
       }
     }
   }
