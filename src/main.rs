@@ -263,17 +263,55 @@ async fn handle_sway_msgs() {
 
 async fn set_sway_wallpaper<T: AsRef<str>>(wallpaper: T) {
   let wallpaper = wallpaper.as_ref();
+  /*
   if let Ok(mut conn) = swayipc_async::Connection::new().await {
     for output in dump_error_and_ret!( conn.get_outputs().await ) {
-      //if output.name.contains("eDP-1") || output.name.contains("eDP1") || output.name.contains("edp-1") {
-        // Primary monitor gets wallpaper
-      { // ALL monitors get wallpaper!
-        let wallpaper_cmd = format!("output {} bg {} fill", output.name, wallpaper);
-        println!("Running wallpaper cmd: {}", wallpaper_cmd);
-        dump_error_and_cont!( conn.run_command(wallpaper_cmd).await );
-      }
+      // ALL monitors get wallpaper!
+      let wallpaper_cmd = format!("output {} bg {} fill", output.name, wallpaper);
+      println!("Running wallpaper cmd: {}", wallpaper_cmd);
+      dump_error_and_cont!( conn.run_command(wallpaper_cmd).await );
     }
+  }*/
+
+  let mut swww_args: Vec<String> = vec![];
+  swww_args.push("img".into());
+  swww_args.push(wallpaper.into());
+
+  swww_args.push("--transition-step".into());
+  swww_args.push("2".into());
+  swww_args.push("--transition-fps".into());
+  swww_args.push("42".into());
+
+  /*let rand_num = fastrand::usize(0..100);
+  if rand_num < 20 {
+    swww_args.push("--transition-type".into());
+    swww_args.push("center".into());
   }
+  else if rand_num < 40 {
+
+  }
+  else if rand_num < 60 {
+
+  }
+  else if rand_num < 80 {
+
+  }
+  else {
+
+  }*/
+  swww_args.push("--transition-type".into());
+  swww_args.push("random".into());
+
+  swww_args.push("--transition-bezier".into());
+  swww_args.push(".81,.12,.84,.14".into());
+
+  dump_error_and_ret!(
+    tokio::process::Command::new("swww")
+      .args(&swww_args)
+      .status()
+      .await
+  );
+
 }
 
 
