@@ -735,7 +735,8 @@ static WALLPAPER_DIR_WEIGHTS: phf::Map<&'static str, usize> = phf::phf_map! {
 };
 
 async fn poll_wallpaper_rotation() {
-  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs( 180 ));
+  //let mut interval = tokio::time::interval(tokio::time::Duration::from_secs( 180 ));
+  let mut small_interval = tokio::time::interval(tokio::time::Duration::from_secs( 2 ));
 
   let mut weights_total: usize = 0;
   for (_, weight) in WALLPAPER_DIR_WEIGHTS.entries() {
@@ -743,7 +744,16 @@ async fn poll_wallpaper_rotation() {
   }
 
   loop {
-    interval.tick().await;
+    //interval.tick().await;
+
+    for _ in 0..90 {
+      small_interval.tick().await;
+      if tokio::fs::try_exists("/tmp/do-wallpaper").await.unwrap_or(false) {
+        dump_error!( tokio::fs::remove_file("/tmp/do-wallpaper").await );
+        break;
+      }
+    }
+
 
     let mut picked_wp_dir = "".to_string();
 
