@@ -396,7 +396,7 @@ async fn darken_kbd_if_video_focused_and_audio_playing() {
 
   let is_video = focused_win_name.contains("youtube") ||
                  focused_win_name.contains("mpv") ||
-                 focused_win_name.contains("mozilla firefox");
+                 false;//focused_win_name.contains("mozilla firefox");
 
   if is_video {
     set_kbd_light(0).await;
@@ -736,7 +736,7 @@ static WALLPAPER_DIR_WEIGHTS: phf::Map<&'static str, usize> = phf::phf_map! {
 
 async fn poll_wallpaper_rotation() {
   //let mut interval = tokio::time::interval(tokio::time::Duration::from_secs( 180 ));
-  let mut small_interval = tokio::time::interval(tokio::time::Duration::from_secs( 2 ));
+  let mut small_interval = tokio::time::interval(tokio::time::Duration::from_millis( 800 ));
 
   let mut weights_total: usize = 0;
   for (_, weight) in WALLPAPER_DIR_WEIGHTS.entries() {
