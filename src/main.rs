@@ -47,7 +47,7 @@ async fn eventmgr() {
     PersistentAsyncTask::new("poll_downloads",                   ||{ tokio::task::spawn(poll_downloads()) }),
     PersistentAsyncTask::new("poll_ff_bookmarks",                ||{ tokio::task::spawn(poll_ff_bookmarks()) }),
     PersistentAsyncTask::new("poll_wallpaper_rotation",          ||{ tokio::task::spawn(poll_wallpaper_rotation()) }),
-    PersistentAsyncTask::new("poll_check_glucose",                ||{ tokio::task::spawn(poll_check_glucose()) }),
+    PersistentAsyncTask::new("poll_check_glucose",               ||{ tokio::task::spawn(poll_check_glucose()) }),
     PersistentAsyncTask::new("mount_disks",                      ||{ tokio::task::spawn(mount_disks()) }),
     PersistentAsyncTask::new("mount_net_shares",                 ||{ tokio::task::spawn(mount_net_shares()) }),
     PersistentAsyncTask::new("bump_cpu_for_performance_procs",   ||{ tokio::task::spawn(bump_cpu_for_performance_procs()) }),
