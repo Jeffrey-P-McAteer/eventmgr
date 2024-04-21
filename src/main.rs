@@ -4,7 +4,7 @@
 use futures::prelude::*;
 
 use std::borrow::Borrow;
-
+use std::str::FromStr;
 
 
 pub const SERVER_SOCKET: &'static str = "/tmp/eventmgr.sock";
@@ -1224,8 +1224,29 @@ async fn mount_net_shares() {
                 }
               }
               else {
-                println!("Got no data from tokio::net::lookup_host({})", &share_host);
+                //println!("Got no data from tokio::net::lookup_host({})", &share_host);
                 can_ping_share_host = Some(false); // no data!
+
+                // We try something old-school and slow to try and fix the situation;
+                let systemd_resolved_endpt = std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 53)), 53);
+
+                let config = rsdns::clients::ClientConfig::with_nameserver(systemd_resolved_endpt);
+
+                if let Ok(mut client) = rsdns::clients::std::Client::new(config) {
+                  if let Ok(rrset) = client.query_rrset::<rsdns::records::data::A>(share_host, rsdns::records::Class::IN) {
+                    for ip_res in rrset.rdata {
+                      //println!("DNS A rrset.ip_res = {:?}", ip_res);
+                      can_ping_share_host = Some(true); // Got at least one result!
+                    }
+                  }
+                  if let Ok(rrset) = client.query_rrset::<rsdns::records::data::Aaaa>(share_host, rsdns::records::Class::IN) {
+                    for ip_res in rrset.rdata {
+                      //println!("DNS AAAA rrset.ip_res = {:?}", ip_res);
+                      can_ping_share_host = Some(true); // Got at least one result!
+                    }
+                  }
+                }
+
               }
             }
             else {

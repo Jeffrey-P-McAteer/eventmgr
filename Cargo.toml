@@ -25,6 +25,10 @@ libpulse-binding = "2"
 libpulse-simple-binding = "2"
 glob = "0.3"
 
+# hickory-client =  {version = "0.24", features = [ ] }
+rsdns = {version = "0.17", features = ["net-std"] }
+
+
 
 [profile.release]
 strip = true
