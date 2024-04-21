@@ -1219,14 +1219,17 @@ async fn mount_net_shares() {
                   host_missed_pings.insert(share_host, 0); // clear missed pings
                 }
                 else {
+                  println!("Got no data (inner) from tokio::net::lookup_host({})", &share_host);
                   can_ping_share_host = Some(false); // no data!
                 }
               }
               else {
+                println!("Got no data from tokio::net::lookup_host({})", &share_host);
                 can_ping_share_host = Some(false); // no data!
               }
             }
             else {
+              println!("Timed out while trying to get tokio::net::lookup_host({})", &share_host);
               can_ping_share_host = Some(false); // timeout!
             }
           }
