@@ -282,6 +282,17 @@ async fn set_sway_wallpaper<T: AsRef<str>>(wallpaper: T) {
     std::env::set_var("XDG_RUNTIME_DIR", "/run/user/1000");
   }
 
+  if ! std::env::var("WAYLAND_DISPLAY").is_ok() { // Just guessing here
+    for i in 0..99 {
+      let wayland_disp_name = format!("wayland-{}", i);
+      let wayland_lock_file = format!("/run/user/1000/wayland-{}.lock", i);
+      if std::path::Path::new(&wayland_lock_file).exists() {
+        std::env::set_var("WAYLAND_DISPLAY", &wayland_disp_name);
+        break;
+      }
+    }
+  }
+
 
   let mut swww_args: Vec<String> = vec![];
   swww_args.push("img".into());
