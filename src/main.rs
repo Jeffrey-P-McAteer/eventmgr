@@ -273,6 +273,16 @@ async fn set_sway_wallpaper<T: AsRef<str>>(wallpaper: T) {
     }
   }*/
 
+  // Ensure pulse can connect!
+  if ! std::env::var("DBUS_SESSION_BUS_ADDRESS").is_ok() {
+    std::env::set_var("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/1000/bus");
+  }
+
+  if ! std::env::var("XDG_RUNTIME_DIR").is_ok() { // Just guessing here
+    std::env::set_var("XDG_RUNTIME_DIR", "/run/user/1000");
+  }
+
+
   let mut swww_args: Vec<String> = vec![];
   swww_args.push("img".into());
   swww_args.push(wallpaper.into());
