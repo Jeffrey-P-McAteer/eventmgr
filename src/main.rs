@@ -1028,12 +1028,12 @@ static MOUNT_DISKS: phf::Map<&'static str, &[(&'static str, &'static str)] > = p
 
   // Not a block device, but we special-case any "options string with space chars"
   // and run the value in a root /bin/sh -c shell to allow 3rd-party utilities like ifuse to handle mounting.
-  "/sys/class/power_supply/apple_mfi_fastcharge" =>
+  /*"/sys/class/power_supply/apple_mfi_fastcharge" =>
     &[
       ("/mnt/iphone-root", "ifuse -o allow_other,rw /mnt/iphone-root"),
       ("/mnt/iphone-vox",  "ifuse --documents com.coppertino.VoxMobile -o allow_other,rw /mnt/iphone-vox"),
       // ("/mnt/iphone-vox.has-been-synced",  "sleep 0.5 ; mount | grep -q iphone-vox && sudo -u jeffrey rsync -avxHAX --no-owner --no-group --no-perms --size-only --progress /j/music/ /mnt/iphone-vox/ ")
-    ],
+    ],*/
 
   "/dev/disk/by-label/ai-models" =>
     &[
