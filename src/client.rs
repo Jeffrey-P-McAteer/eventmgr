@@ -36,7 +36,7 @@ pub static BRIGHTNESS_DDCUTIL_MAP: &[((u32, u32), (u32, u32))] = &[
 
 
 pub fn run_local_event_client(args: &Vec<String>) -> bool {
-  
+
   if args.contains(&"brightness-down".to_string()) || args.contains(&"brightness-up".to_string()) {
 
     let mut wanted_ddcutil_brightness_val: Option<u32> = None;
@@ -68,7 +68,7 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
             new_brightness += 1;
           }
         }
-        
+
         if new_brightness < 1 {
           new_brightness = 1;
         }
@@ -95,7 +95,7 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
             let fraction_of_range = (new_brightness - begin_b) as f32 / range as f32;
             let ddc_range = ddc_end_b - ddc_begin_b;
             let ddc_used_range = (ddc_range as f32 * fraction_of_range) as u32;
-            
+
             wanted_ddcutil_brightness_val = Some(ddc_begin_b + ddc_used_range);
 
             break;
@@ -105,7 +105,7 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
       }
     }
 
-    
+
     // Also adjust ddcutil devices
     let ddcutil_serials = [
       "PTBLAJA000229",
@@ -151,7 +151,7 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
     if let Ok(led_devices) = bulbb::misc::LedDevice::get_all_led_devices() {
       for ld in led_devices {
         if let Some(bulbb::misc::LedFunction::KbdBacklight) = ld.info.function {
-          
+
           if want_kbd_on {
             dump_error!( ld.set_brightness(1) );
           }
@@ -220,6 +220,10 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
 
 
   if args.contains(&"do-lock".to_string()) {
+    // If we aren't supposed to lock, don't.
+    if std::path::Path::new("/tmp/no-lock").exists() {
+      return true;
+    }
     // Take screenshot + blur it
     dump_error!(
       std::process::Command::new("grim")
@@ -244,7 +248,7 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
         .args(&[
           "-i", "/tmp/lock-screen-blurred.png",
           "--indicator-radius", "120",
-          
+
         ])
         .status()
     );
