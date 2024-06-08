@@ -8,7 +8,7 @@ pub struct PersistentAsyncTask {
 
 impl PersistentAsyncTask {
   pub fn new<F>(name: &str, spawn_fn: F) -> PersistentAsyncTask
-    where 
+    where
         F: FnMut() -> tokio::task::JoinHandle<()> + Send + 'static
   {
     PersistentAsyncTask {

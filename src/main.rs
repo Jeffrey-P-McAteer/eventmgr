@@ -399,6 +399,18 @@ static CURRENT_KBD_AUDIO_SEMAPHOR: once_cell::sync::Lazy<std::sync::atomic::Atom
 );
 
 async fn darken_kbd_if_video_focused_and_audio_playing() {
+
+  // Override all below logic w/ file
+  if std::path::Path::new("/tmp/light-kbd").exists() {
+    set_kbd_light(1).await;
+    return;
+  }
+  if std::path::Path::new("/tmp/dark-kbd").exists() {
+    set_kbd_light(0).await;
+    return;
+  }
+
+
   let currently_playing_audio = CURRENTLY_PLAYING_AUDIO.load(std::sync::atomic::Ordering::SeqCst);
   let audio_semaphor = CURRENT_KBD_AUDIO_SEMAPHOR.load(std::sync::atomic::Ordering::SeqCst);
   if ! currently_playing_audio {
