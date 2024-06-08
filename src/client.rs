@@ -222,6 +222,7 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
   if args.contains(&"do-lock".to_string()) {
     // If we aren't supposed to lock, don't.
     if std::path::Path::new("/tmp/no-lock").exists() {
+      std::thread::sleep(std::time::Duration::from_millis(60 * 1000));
       return true;
     }
     // Take screenshot + blur it
