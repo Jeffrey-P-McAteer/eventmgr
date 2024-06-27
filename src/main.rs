@@ -47,7 +47,7 @@ async fn eventmgr() {
     PersistentAsyncTask::new("poll_downloads",                   ||{ tokio::task::spawn(poll_downloads()) }),
     PersistentAsyncTask::new("poll_ff_bookmarks",                ||{ tokio::task::spawn(poll_ff_bookmarks()) }),
     PersistentAsyncTask::new("poll_wallpaper_rotation",          ||{ tokio::task::spawn(poll_wallpaper_rotation()) }),
-    PersistentAsyncTask::new("poll_check_glucose",               ||{ tokio::task::spawn(poll_check_glucose()) }),
+    // PersistentAsyncTask::new("poll_check_glucose",               ||{ tokio::task::spawn(poll_check_glucose()) }),
     PersistentAsyncTask::new("mount_disks",                      ||{ tokio::task::spawn(mount_disks()) }),
     PersistentAsyncTask::new("mount_net_shares",                 ||{ tokio::task::spawn(mount_net_shares()) }),
     PersistentAsyncTask::new("bump_cpu_for_performance_procs",   ||{ tokio::task::spawn(bump_cpu_for_performance_procs()) }),
@@ -355,7 +355,11 @@ async fn on_window_focus(window_name: &str, sway_node: &swayipc_async::Node) {
   darken_kbd_if_video_focused_and_audio_playing().await;
 
   let lower_window = window_name.to_lowercase();
-  if (lower_window.contains("team fortress") && lower_window.contains("opengl")) || (lower_window.contains("baldur") && lower_window.contains("gate")) {
+  if (lower_window.contains("team fortress") /*&& lower_window.contains("opengl")*/) || (lower_window.contains("baldur") && lower_window.contains("gate")) {
+    UTC_S_LAST_PERFORMANCE_CPU_WANTED.store(
+      std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("Time travel!").as_secs() as usize,
+      std::sync::atomic::Ordering::Relaxed
+    );
     on_wanted_cpu_level(CPU_GOV_PERFORMANCE).await;
     unpause_proc("hl2_linux").await;
     UTC_S_LAST_SEEN_FS_TEAM_FORTRESS.store(
@@ -366,6 +370,10 @@ async fn on_window_focus(window_name: &str, sway_node: &swayipc_async::Node) {
   else {
     if lower_window.contains(" - mpv") {
       on_wanted_cpu_level(CPU_GOV_POWERSAVE).await;
+      UTC_S_LAST_PERFORMANCE_CPU_WANTED.store(
+        0,
+        std::sync::atomic::Ordering::Relaxed
+      );
     }
     else if lower_window.contains("spice display") {
       on_wanted_cpu_level(CPU_GOV_PERFORMANCE).await; // bump for VM
@@ -775,6 +783,10 @@ async fn poll_wallpaper_rotation() {
   for (_, weight) in WALLPAPER_DIR_WEIGHTS.entries() {
     weights_total += weight;
   }
+
+  // We create /tmp/do-wallpaper to force a wallpaper rotation as soon as we login/startup,
+  // as opposed to waiting 90 seconds for one.
+  dump_error!( tokio::fs::write("/tmp/do-wallpaper", "-".as_bytes()).await );
 
   loop {
     //interval.tick().await;
@@ -1364,14 +1376,35 @@ async fn mount_net_shares() {
 }
 
 
+// This allows me to launch any process like "WANT_HIGH_CPU=t python some_script.py" and
+// so long as that copy of python is running, bump_cpu_for_performance_procs will bump the CPU.
+fn process_has_high_cpu_environ_set(p: &procfs::process::Process) -> bool {
+  if let Ok(p_env) = p.environ() {
+    return p_env.contains_key(std::ffi::OsStr::new("WANT_HIGH_CPU"));
+  }
+  return false;
+}
 
+static UTC_S_LAST_PERFORMANCE_CPU_WANTED: once_cell::sync::Lazy<std::sync::atomic::AtomicUsize> = once_cell::sync::Lazy::new(||
+  std::sync::atomic::AtomicUsize::new(0)
+);
+
+fn seconds_since_UTC_S_LAST_PERFORMANCE_CPU_WANTED() -> usize {
+  return (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("Time travel!").as_secs() as usize) - UTC_S_LAST_PERFORMANCE_CPU_WANTED.load(std::sync::atomic::Ordering::Relaxed);
+}
 
 async fn bump_cpu_for_performance_procs() {
-  let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(1400));
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(1800));
 
   let mut have_high_cpu = false;
+  let mut tick_count = 0;
   loop {
     interval.tick().await;
+
+    tick_count += 1;
+    if tick_count > 10000000 {
+      tick_count = 0;
+    }
 
     let mut want_high_cpu = false;
     for p in dump_error_and_ret!( procfs::process::all_processes() ) {
@@ -1385,7 +1418,8 @@ async fn bump_cpu_for_performance_procs() {
               p_file_name == "rustc" || p_file_name == "cargo" ||
               p_file_name == "make" || p_file_name == "pacman" ||
               p_file_name == "x86_64-w64-mingw32-gcc" ||
-              p_file_name == "cc" || p_file_name == "cc1"
+              p_file_name == "cc" || p_file_name == "cc1" ||
+              process_has_high_cpu_environ_set(&p)
             ;
             if heavy_p_running {
               want_high_cpu = true;
@@ -1396,14 +1430,26 @@ async fn bump_cpu_for_performance_procs() {
       }
     }
 
+    if tick_count % 4 == 0 {
+      // every 5 seconds or so double-check if we have high CPU rather than trusting ourselves
+      have_high_cpu = get_cpu().await == CPU_GOV_PERFORMANCE;
+    }
+
     if want_high_cpu && !have_high_cpu {
+      UTC_S_LAST_PERFORMANCE_CPU_WANTED.store(
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("Time travel!").as_secs() as usize,
+        std::sync::atomic::Ordering::Relaxed
+      );
       on_wanted_cpu_level(CPU_GOV_PERFORMANCE).await;
       have_high_cpu = true;
     }
     else if !want_high_cpu && have_high_cpu {
       on_wanted_cpu_level(CPU_GOV_ONDEMAND).await;
       have_high_cpu = false;
-
+      UTC_S_LAST_PERFORMANCE_CPU_WANTED.store(
+        0,
+        std::sync::atomic::Ordering::Relaxed
+      );
     }
 
   }
@@ -1709,19 +1755,22 @@ async fn mount_swap_files() {
 
       }
 
-      // // Also test if system is under load & if do bump CPU?
-      let (one_m, five_m, fifteen_m) = info.load_average();
-      if one_m > 3.8 && five_m > 2.8 {
-        // If > 3 cores are saturated, try to go to high performance
-        on_wanted_cpu_level(CPU_GOV_PERFORMANCE).await;
-      }
-      else if one_m > 0.60 && one_m < 1.26 {
-        // if <1 core used go low
-        on_wanted_cpu_level(CPU_GOV_CONSERVATIVE).await;
-      }
-      else if one_m <= 0.60 {
-        // if <1 core used go low
-        on_wanted_cpu_level(CPU_GOV_POWERSAVE).await;
+      // Only do this automatic load-based change if we are far away from having bumped CPU for performance wants
+      if seconds_since_UTC_S_LAST_PERFORMANCE_CPU_WANTED() > 300 {
+        // Also test if system is under load & if do bump CPU?
+        let (one_m, five_m, fifteen_m) = info.load_average();
+        if one_m > 3.8 && five_m > 2.8 {
+          // If > 3 cores are saturated, try to go to high performance
+          on_wanted_cpu_level(CPU_GOV_PERFORMANCE).await;
+        }
+        else if one_m > 0.70 && one_m < 1.28 {
+          // if <1 core used go low
+          on_wanted_cpu_level(CPU_GOV_CONSERVATIVE).await;
+        }
+        else if one_m <= 0.70 {
+          // if <1 core used go low
+          on_wanted_cpu_level(CPU_GOV_POWERSAVE).await;
+        }
       }
 
 
