@@ -1394,7 +1394,7 @@ fn seconds_since_UTC_S_LAST_PERFORMANCE_CPU_WANTED() -> usize {
 }
 
 async fn bump_cpu_for_performance_procs() {
-  let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(1800));
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(2400));
 
   let mut have_high_cpu = false;
   let mut tick_count = 0;
