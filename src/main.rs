@@ -355,13 +355,13 @@ async fn on_window_focus(window_name: &str, sway_node: &swayipc_async::Node) {
   darken_kbd_if_video_focused_and_audio_playing().await;
 
   let lower_window = window_name.to_lowercase();
-  if (lower_window.contains("team fortress") /*&& lower_window.contains("opengl")*/) || (lower_window.contains("baldur") && lower_window.contains("gate")) {
+  if lower_window.contains("team fortress") && lower_window.contains("opengl") {
     UTC_S_LAST_PERFORMANCE_CPU_WANTED.store(
       std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("Time travel!").as_secs() as usize,
       std::sync::atomic::Ordering::Relaxed
     );
     on_wanted_cpu_level(CPU_GOV_PERFORMANCE).await;
-    unpause_proc("hl2_linux").await;
+    unpause_proc("tf_linux64").await;
     UTC_S_LAST_SEEN_FS_TEAM_FORTRESS.store(
       std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("Time travel!").as_secs() as usize,
       std::sync::atomic::Ordering::Relaxed
@@ -388,7 +388,7 @@ async fn on_window_focus(window_name: &str, sway_node: &swayipc_async::Node) {
     // Only pause IF we've seen team fortress fullscreen in the last 15 minutes / 900s
     let seconds_since_saw_tf2_fs = (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("Time travel!").as_secs() as usize) - UTC_S_LAST_SEEN_FS_TEAM_FORTRESS.load(std::sync::atomic::Ordering::Relaxed);
     if seconds_since_saw_tf2_fs < 900 {
-      pause_proc("hl2_linux").await;
+      pause_proc("tf_linux64").await;
     }
 
   }
