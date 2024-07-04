@@ -28,6 +28,7 @@ glob = "0.3"
 # hickory-client =  {version = "0.24", features = [ ] }
 rsdns = {version = "0.17", features = ["net-std"] }
 
+measure_time = "0.8"
 
 
 [profile.release]

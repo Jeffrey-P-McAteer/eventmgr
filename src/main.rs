@@ -5,7 +5,7 @@ use futures::prelude::*;
 
 use std::borrow::Borrow;
 use std::str::FromStr;
-
+use measure_time::{info_time, debug_time, trace_time, error_time, print_time};
 
 pub const SERVER_SOCKET: &'static str = "/tmp/eventmgr.sock";
 
@@ -70,7 +70,7 @@ async fn eventmgr() {
   }
 }
 
-const NOTIFICATION_TIMEOUT_MS: u32 = 2600;
+const NOTIFICATION_TIMEOUT_MS: u32 = 1800;
 
 async fn notify(msg: &str) {
   println!("{}", msg);
@@ -345,6 +345,8 @@ static LAST_FOCUSED_WINDOW_NAME: once_cell::sync::Lazy<tokio::sync::RwLock<Strin
 );
 
 async fn on_window_focus(window_name: &str, sway_node: &swayipc_async::Node) {
+  //print_time!("on_window_focus"); // recorded 8 -> 14ms
+
   println!("Window focused = {:?}", window_name );
 
   {
@@ -525,7 +527,7 @@ async fn poll_device_audio_playback() {
       20.0 * (r / (u8::MAX as f64)).log10()
   }
 
-  let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(950));
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(1800));
 
   interval.tick().await; // Wait 1 tick before recording
 
@@ -547,7 +549,7 @@ async fn poll_device_audio_playback() {
         rate: 44100,
       };
       if spec.is_valid() {
-
+        //print_time!("poll_device_audio_playback inner task"); // approx 2s, but not a high-cpu operation.
         for monitor_dev_name in PULSE_AUDIO_MONITOR_DEVICE_NAMES {
           let r = libpulse_simple_binding::Simple::new(
             None,                // Use the default server
@@ -886,7 +888,7 @@ async fn bind_mount_azure_data() {
   // n == neither, d == data mounted, t == tmpfs mounted
   let mut data_mount_points_mounted = 'n';
 
-  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(8));
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(12));
 
   loop {
     interval.tick().await; // wait at least one tick so we can fail early below w/o a hugely infinite loop
@@ -1201,7 +1203,7 @@ static MOUNT_NET_SHARES: phf::Map<&'static str, &[(&'static str, &'static str)] 
 };
 
 async fn mount_net_shares() {
-  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(24));
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(32));
 
   // First, we use rmdir to remove all empty directories that exist under /mnt/
   let mut rmdir_cmd = vec!["-n", "rmdir"];
@@ -1394,12 +1396,14 @@ fn seconds_since_UTC_S_LAST_PERFORMANCE_CPU_WANTED() -> usize {
 }
 
 async fn bump_cpu_for_performance_procs() {
-  let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(2400));
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(1800));
 
   let mut have_high_cpu = false;
   let mut tick_count = 0;
   loop {
     interval.tick().await;
+
+    //print_time!("bump_cpu_for_performance_procs loop"); // recorded approx 8ms, this is not a significant performance hog
 
     tick_count += 1;
     if tick_count > 10000000 {
@@ -1599,7 +1603,7 @@ async fn unpause_proc(name: &str) {
 }
 
 async fn partial_resume_paused_procs() {
-  let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(500));
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(600));
   loop {
     interval.tick().await;
 
@@ -1622,7 +1626,7 @@ async fn partial_resume_paused_procs() {
     }
 
     // Delay for 0.2s to allow continued procs to run
-    tokio::time::sleep( std::time::Duration::from_millis(60) ).await;
+    tokio::time::sleep( std::time::Duration::from_millis(65) ).await;
 
     for i in 0..PAUSED_PROC_PIDS.len() {
       let proc_pid = PAUSED_PROC_PIDS[i].load(std::sync::atomic::Ordering::Relaxed);
@@ -1641,7 +1645,7 @@ async fn partial_resume_paused_procs() {
 
 
 async fn mount_swap_files() {
-  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(6));
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(4400));
 
   interval.tick().await;
 
@@ -1763,8 +1767,8 @@ async fn mount_swap_files() {
           // If > 3 cores are saturated, try to go to high performance
           on_wanted_cpu_level(CPU_GOV_PERFORMANCE).await;
         }
-        else if one_m > 0.70 && one_m < 1.28 {
-          // if <1 core used go low
+        else if one_m > 0.70 && one_m < 1.29 {
+          // if ~1-2 core used go lower
           on_wanted_cpu_level(CPU_GOV_CONSERVATIVE).await;
         }
         else if one_m <= 0.70 {
@@ -1782,7 +1786,7 @@ async fn mount_swap_files() {
 
 
 async fn turn_off_misc_lights() {
-  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(48));
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(52));
 
   // find /sys -name brightness -print -exec cat {} \; 2>/dev/null
   let files_to_write_0_to = &[
