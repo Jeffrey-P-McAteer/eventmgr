@@ -35,6 +35,10 @@ fn main() {
   }
 }
 
+// Each task spawned in eventmgr() has two interval ticks - the regular one, and a low-power one
+// which ticks less often. During make_cpu_governor_decisions(), if we go to powersave we avoid having eventmgr itself
+// consume significant CPU by ticking less often.
+static IN_POWERSAVE_MODE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 async fn eventmgr() {
   notify("Beginning eventmgr event loop...").await;
@@ -45,7 +49,6 @@ async fn eventmgr() {
     PersistentAsyncTask::new("poll_device_audio_playback",       ||{ tokio::task::spawn(poll_device_audio_playback()) }),
     PersistentAsyncTask::new("handle_socket_msgs",               ||{ tokio::task::spawn(handle_socket_msgs()) }),
     PersistentAsyncTask::new("poll_downloads",                   ||{ tokio::task::spawn(poll_downloads()) }),
-    PersistentAsyncTask::new("poll_ff_bookmarks",                ||{ tokio::task::spawn(poll_ff_bookmarks()) }),
     PersistentAsyncTask::new("poll_wallpaper_rotation",          ||{ tokio::task::spawn(poll_wallpaper_rotation()) }),
     // PersistentAsyncTask::new("poll_check_glucose",               ||{ tokio::task::spawn(poll_check_glucose()) }),
     PersistentAsyncTask::new("mount_disks",                      ||{ tokio::task::spawn(mount_disks()) }),
@@ -528,6 +531,7 @@ async fn poll_device_audio_playback() {
   }
 
   let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(1800));
+  let mut powersave_interval = tokio::time::interval(tokio::time::Duration::from_millis(8200));
 
   interval.tick().await; // Wait 1 tick before recording
 
@@ -540,7 +544,13 @@ async fn poll_device_audio_playback() {
   );
 
   loop {
-    interval.tick().await;
+    if IN_POWERSAVE_MODE.load(std::sync::atomic::Ordering::Relaxed) {
+      powersave_interval.tick().await;
+    }
+    else {
+      interval.tick().await;
+    }
+
 
     dump_error_and_ret!( tokio::task::spawn_blocking(move || {
       let spec = sample::Spec {
@@ -669,8 +679,15 @@ pub const QUARANTINE_DELETE_SECS: u64 = (3 * 24) * (60 * 60);
 
 async fn poll_downloads() {
   let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(45));
+  let mut powersave_interval = tokio::time::interval(tokio::time::Duration::from_secs(75));
+
   loop {
-    interval.tick().await;
+    if IN_POWERSAVE_MODE.load(std::sync::atomic::Ordering::Relaxed) {
+      powersave_interval.tick().await;
+    }
+    else {
+      interval.tick().await;
+    }
 
     if !std::path::Path::new("/j/downloads/q").exists() {
       dump_error_and_ret!( tokio::fs::create_dir_all("/j/downloads/q").await );
@@ -756,17 +773,6 @@ async fn poll_downloads() {
 }
 
 
-async fn poll_ff_bookmarks() {
-  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
-  loop {
-    interval.tick().await;
-
-    // See https://crates.io/crates/marionette
-
-
-  }
-}
-
 
 
 // Higher numbers selected more often
@@ -780,6 +786,7 @@ static WALLPAPER_DIR_WEIGHTS: phf::Map<&'static str, usize> = phf::phf_map! {
 async fn poll_wallpaper_rotation() {
   //let mut interval = tokio::time::interval(tokio::time::Duration::from_secs( 180 ));
   let mut small_interval = tokio::time::interval(tokio::time::Duration::from_millis( 800 ));
+  let mut small_powersave_interval = tokio::time::interval(tokio::time::Duration::from_millis( 3200 ));
 
   let mut weights_total: usize = 0;
   for (_, weight) in WALLPAPER_DIR_WEIGHTS.entries() {
@@ -791,13 +798,23 @@ async fn poll_wallpaper_rotation() {
   dump_error!( tokio::fs::write("/tmp/do-wallpaper", "-".as_bytes()).await );
 
   loop {
-    //interval.tick().await;
 
-    for _ in 0..90 {
-      small_interval.tick().await;
-      if tokio::fs::try_exists("/tmp/do-wallpaper").await.unwrap_or(false) {
-        dump_error!( tokio::fs::remove_file("/tmp/do-wallpaper").await );
-        break;
+    if IN_POWERSAVE_MODE.load(std::sync::atomic::Ordering::Relaxed) {
+      for _ in 0..30 {
+        small_powersave_interval.tick().await;
+        if tokio::fs::try_exists("/tmp/do-wallpaper").await.unwrap_or(false) {
+          dump_error!( tokio::fs::remove_file("/tmp/do-wallpaper").await );
+          break;
+        }
+      }
+    }
+    else {
+      for _ in 0..90 {
+        small_interval.tick().await;
+        if tokio::fs::try_exists("/tmp/do-wallpaper").await.unwrap_or(false) {
+          dump_error!( tokio::fs::remove_file("/tmp/do-wallpaper").await );
+          break;
+        }
       }
     }
 
@@ -889,9 +906,17 @@ async fn bind_mount_azure_data() {
   let mut data_mount_points_mounted = 'n';
 
   let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(12));
+  let mut powersave_interval = tokio::time::interval(tokio::time::Duration::from_secs(22));
 
   loop {
-    interval.tick().await; // wait at least one tick so we can fail early below w/o a hugely infinite loop
+    // wait at least one tick so we can fail early below w/o a hugely infinite loop
+    if IN_POWERSAVE_MODE.load(std::sync::atomic::Ordering::Relaxed) {
+      powersave_interval.tick().await;
+    }
+    else {
+      interval.tick().await;
+    }
+
     if azure_data_block_dev.exists() && is_mounted( &azure_data_mount.to_string_lossy() ).await {
       break;
     }
@@ -1072,6 +1097,7 @@ static MOUNT_DISKS: phf::Map<&'static str, &[(&'static str, &'static str)] > = p
 
 async fn mount_disks() {
   let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(4));
+  let mut powersave_interval = tokio::time::interval(tokio::time::Duration::from_secs(9));
 
   // First, we use rmdir to remove all empty directories that exist under /mnt/
   let mut rmdir_cmd = vec!["-n", "rmdir"];
@@ -1091,7 +1117,13 @@ async fn mount_disks() {
   );
 
   loop {
-    interval.tick().await;
+    if IN_POWERSAVE_MODE.load(std::sync::atomic::Ordering::Relaxed) {
+      powersave_interval.tick().await;
+    }
+    else {
+      interval.tick().await;
+    }
+
 
     for (disk_block_device, disk_mount_items) in MOUNT_DISKS.entries() {
       for (disk_mount_path, disk_mount_opts) in disk_mount_items.iter() {
@@ -1204,6 +1236,7 @@ static MOUNT_NET_SHARES: phf::Map<&'static str, &[(&'static str, &'static str)] 
 
 async fn mount_net_shares() {
   let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(32));
+  let mut powersave_interval = tokio::time::interval(tokio::time::Duration::from_secs(98));
 
   // First, we use rmdir to remove all empty directories that exist under /mnt/
   let mut rmdir_cmd = vec!["-n", "rmdir"];
@@ -1242,7 +1275,12 @@ async fn mount_net_shares() {
   let mut host_missed_pings: std::collections::HashMap::<&'static str, usize> = std::collections::HashMap::<&'static str, usize>::new();
 
   loop {
-    interval.tick().await;
+    if IN_POWERSAVE_MODE.load(std::sync::atomic::Ordering::Relaxed) {
+      powersave_interval.tick().await;
+    }
+    else {
+      interval.tick().await;
+    }
 
     for (share_host, disk_mount_items) in MOUNT_NET_SHARES.entries() {
       let mut can_ping_share_host: Option<bool> = None;
@@ -1397,12 +1435,18 @@ fn seconds_since_UTC_S_LAST_PERFORMANCE_CPU_WANTED() -> usize {
 
 async fn bump_cpu_for_performance_procs() {
   let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(1800));
+  let mut powersave_interval = tokio::time::interval(tokio::time::Duration::from_millis(5200));
 
   let mut not_high_perf_pids = std::collections::HashSet::<i32>::with_capacity(2000);
   let mut have_high_cpu = false;
   let mut tick_count = 0;
   loop {
-    interval.tick().await;
+    if IN_POWERSAVE_MODE.load(std::sync::atomic::Ordering::Relaxed) {
+      powersave_interval.tick().await;
+    }
+    else {
+      interval.tick().await;
+    }
 
     //print_time!("bump_cpu_for_performance_procs loop"); // recorded approx 8ms, this is not a significant performance hog
 
@@ -1479,18 +1523,27 @@ async fn make_cpu_governor_decisions(
   immediate_wanted_cpu_level: Option<&'static str>,
 ) {
   let current_gov = get_cpu().await;
-
+  let mut set_gov = current_gov;
   if let Some(immediate_wanted_cpu_level) = immediate_wanted_cpu_level {
     if immediate_wanted_cpu_level == current_gov {
-      return; // NOP
+      // NOP
     }
     else {
       on_wanted_cpu_level(immediate_wanted_cpu_level);
+      set_gov = immediate_wanted_cpu_level;
     }
   }
 
   if current_gov == CPU_GOV_PERFORMANCE {
 
+  }
+
+  // Bookkeeping
+  if set_gov == CPU_GOV_POWERSAVE {
+    IN_POWERSAVE_MODE.store(true, std::sync::atomic::Ordering::Relaxed);
+  }
+  else {
+    IN_POWERSAVE_MODE.store(false, std::sync::atomic::Ordering::Relaxed);
   }
 
 
@@ -1641,8 +1694,15 @@ async fn unpause_proc(name: &str) {
 
 async fn partial_resume_paused_procs() {
   let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(600));
+  let mut powersave_interval = tokio::time::interval(tokio::time::Duration::from_millis(1300));
   loop {
-    interval.tick().await;
+    let in_powersave_mode = IN_POWERSAVE_MODE.load(std::sync::atomic::Ordering::Relaxed);
+    if in_powersave_mode {
+      powersave_interval.tick().await;
+    }
+    else {
+      interval.tick().await;
+    }
 
     for i in 0..PAUSED_PROC_PIDS.len() {
       let proc_pid = PAUSED_PROC_PIDS[i].load(std::sync::atomic::Ordering::Relaxed);
@@ -1663,7 +1723,12 @@ async fn partial_resume_paused_procs() {
     }
 
     // Delay for 0.2s to allow continued procs to run
-    tokio::time::sleep( std::time::Duration::from_millis(65) ).await;
+    if in_powersave_mode {
+      tokio::time::sleep( std::time::Duration::from_millis(95) ).await;
+    }
+    else {
+      tokio::time::sleep( std::time::Duration::from_millis(65) ).await;
+    }
 
     for i in 0..PAUSED_PROC_PIDS.len() {
       let proc_pid = PAUSED_PROC_PIDS[i].load(std::sync::atomic::Ordering::Relaxed);
@@ -1683,6 +1748,7 @@ async fn partial_resume_paused_procs() {
 
 async fn mount_swap_files() {
   let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(4400));
+  let mut powersave_interval = tokio::time::interval(tokio::time::Duration::from_millis(9600));
 
   interval.tick().await;
 
@@ -1716,7 +1782,12 @@ async fn mount_swap_files() {
   let mut num_swap_files_added = 0;
 
   loop {
-    interval.tick().await;
+    if IN_POWERSAVE_MODE.load(std::sync::atomic::Ordering::Relaxed) {
+      powersave_interval.tick().await;
+    }
+    else {
+      interval.tick().await;
+    }
 
     if ! swap_file_dir.exists() {
       break; // It could happen, so re-start future & pick up the other card.
