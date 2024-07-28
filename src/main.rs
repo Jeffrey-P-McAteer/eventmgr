@@ -367,10 +367,6 @@ async fn on_window_focus(window_name: &str, sway_node: &swayipc_async::Node) {
 
   let lower_window = window_name.to_lowercase();
   if is_tf2_window(&lower_window) {
-    UTC_S_LAST_PERFORMANCE_CPU_WANTED.store(
-      std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("Time travel!").as_secs() as usize,
-      std::sync::atomic::Ordering::Relaxed
-    );
     make_cpu_governor_decisions(Some(CPU_GOV_PERFORMANCE), None).await;
     unpause_proc("tf_linux64").await;
     UTC_S_LAST_SEEN_FS_TEAM_FORTRESS.store(
@@ -381,10 +377,6 @@ async fn on_window_focus(window_name: &str, sway_node: &swayipc_async::Node) {
   else {
     if lower_window.contains(" - mpv") {
       make_cpu_governor_decisions(Some(CPU_GOV_POWERSAVE), None).await;
-      UTC_S_LAST_PERFORMANCE_CPU_WANTED.store(
-        0,
-        std::sync::atomic::Ordering::Relaxed
-      );
     }
     else if lower_window.contains("spice display") {
       make_cpu_governor_decisions(Some(CPU_GOV_PERFORMANCE), None).await; // bump for VM
@@ -1424,14 +1416,6 @@ fn process_has_high_cpu_environ_set(p: &procfs::process::Process) -> bool {
   return false;
 }
 
-static UTC_S_LAST_PERFORMANCE_CPU_WANTED: once_cell::sync::Lazy<std::sync::atomic::AtomicUsize> = once_cell::sync::Lazy::new(||
-  std::sync::atomic::AtomicUsize::new(0)
-);
-
-fn seconds_since_UTC_S_LAST_PERFORMANCE_CPU_WANTED() -> usize {
-  return (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("Time travel!").as_secs() as usize) - UTC_S_LAST_PERFORMANCE_CPU_WANTED.load(std::sync::atomic::Ordering::Relaxed);
-}
-
 async fn bump_cpu_for_performance_procs() {
   let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(1800));
   let mut powersave_interval = tokio::time::interval(tokio::time::Duration::from_millis(5200));
@@ -1497,20 +1481,12 @@ async fn bump_cpu_for_performance_procs() {
     }
 
     if want_high_cpu && !have_high_cpu {
-      UTC_S_LAST_PERFORMANCE_CPU_WANTED.store(
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("Time travel!").as_secs() as usize,
-        std::sync::atomic::Ordering::Relaxed
-      );
       make_cpu_governor_decisions(Some(CPU_GOV_PERFORMANCE), None).await;
       have_high_cpu = true;
     }
     else if !want_high_cpu && have_high_cpu {
       make_cpu_governor_decisions(None, None).await;
       have_high_cpu = false;
-      UTC_S_LAST_PERFORMANCE_CPU_WANTED.store(
-        0,
-        std::sync::atomic::Ordering::Relaxed
-      );
     }
 
   }
