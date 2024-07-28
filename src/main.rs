@@ -62,9 +62,15 @@ async fn eventmgr() {
 
   // We check for failed tasks and re-start them every 6 seconds
   let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(6));
+  let mut powersave_interval = tokio::time::interval(tokio::time::Duration::from_secs(26));
 
   loop {
-    interval.tick().await;
+    if IN_POWERSAVE_MODE.load(std::sync::atomic::Ordering::Relaxed) {
+      powersave_interval.tick().await;
+    }
+    else {
+      interval.tick().await;
+    }
 
     for i in 0..tasks.len() {
       tasks[i].ensure_running().await;
@@ -360,12 +366,12 @@ async fn on_window_focus(window_name: &str, sway_node: &swayipc_async::Node) {
   darken_kbd_if_video_focused_and_audio_playing().await;
 
   let lower_window = window_name.to_lowercase();
-  if lower_window.contains("team fortress") && lower_window.contains("opengl") {
+  if is_tf2_window(&lower_window) {
     UTC_S_LAST_PERFORMANCE_CPU_WANTED.store(
       std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("Time travel!").as_secs() as usize,
       std::sync::atomic::Ordering::Relaxed
     );
-    on_wanted_cpu_level(CPU_GOV_PERFORMANCE).await;
+    make_cpu_governor_decisions(Some(CPU_GOV_PERFORMANCE), None).await;
     unpause_proc("tf_linux64").await;
     UTC_S_LAST_SEEN_FS_TEAM_FORTRESS.store(
       std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("Time travel!").as_secs() as usize,
@@ -374,20 +380,20 @@ async fn on_window_focus(window_name: &str, sway_node: &swayipc_async::Node) {
   }
   else {
     if lower_window.contains(" - mpv") {
-      on_wanted_cpu_level(CPU_GOV_POWERSAVE).await;
+      make_cpu_governor_decisions(Some(CPU_GOV_POWERSAVE), None).await;
       UTC_S_LAST_PERFORMANCE_CPU_WANTED.store(
         0,
         std::sync::atomic::Ordering::Relaxed
       );
     }
     else if lower_window.contains("spice display") {
-      on_wanted_cpu_level(CPU_GOV_PERFORMANCE).await; // bump for VM
+      make_cpu_governor_decisions(Some(CPU_GOV_PERFORMANCE), None).await; // bump for VM
     }
     else if lower_window.contains("mozilla firefox") {
-      on_wanted_cpu_level(CPU_GOV_ONDEMAND).await; // todo possibly a custom per-browser ask
+      make_cpu_governor_decisions(Some(CPU_GOV_ONDEMAND), None).await; // todo possibly a custom per-browser ask
     }
     else {
-      on_wanted_cpu_level(CPU_GOV_ONDEMAND).await;
+      make_cpu_governor_decisions(None, None).await;
     }
 
     // Only pause IF we've seen team fortress fullscreen in the last 15 minutes / 900s
@@ -628,13 +634,6 @@ async fn on_workspace_focus(workspace_name: &str) {
 
 // static LAST_CPU_LEVEL: once_cell::sync::Lazy<(&str, usize)> = once_cell::sync::Lazy::new(|| (CPU_GOV_ONDEMAND, 0) );
 
-async fn on_wanted_cpu_level(wanted_cpu_level: &str) {
-  let current_cpu_level = get_cpu().await;
-  if current_cpu_level == wanted_cpu_level {
-    return; // NOP
-  }
-  set_cpu(wanted_cpu_level).await;
-}
 
 // TODO handle lowering CPU level over time / desktop activity
 
@@ -1487,13 +1486,13 @@ async fn bump_cpu_for_performance_procs() {
       }
     }
 
-    if tick_count % 4 == 0 {
+    if tick_count % 5 == 0 {
       // every 5 seconds or so double-check if we have high CPU rather than trusting ourselves
       have_high_cpu = get_cpu().await == CPU_GOV_PERFORMANCE;
     }
 
-    // Clear cache when we have >2x space known to be wasted!
-    if not_high_perf_pids.len() > 2 * num_procs {
+    // Clear cache when we have >8x space known to be wasted!
+    if not_high_perf_pids.len() > 8 * num_procs {
       not_high_perf_pids.clear();
     }
 
@@ -1502,11 +1501,11 @@ async fn bump_cpu_for_performance_procs() {
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("Time travel!").as_secs() as usize,
         std::sync::atomic::Ordering::Relaxed
       );
-      make_cpu_governor_decisions(Some(CPU_GOV_PERFORMANCE)).await;
+      make_cpu_governor_decisions(Some(CPU_GOV_PERFORMANCE), None).await;
       have_high_cpu = true;
     }
     else if !want_high_cpu && have_high_cpu {
-      make_cpu_governor_decisions(None).await;
+      make_cpu_governor_decisions(None, None).await;
       have_high_cpu = false;
       UTC_S_LAST_PERFORMANCE_CPU_WANTED.store(
         0,
@@ -1517,26 +1516,94 @@ async fn bump_cpu_for_performance_procs() {
   }
 }
 
+fn is_tf2_window(lower_name: &str) -> bool {
+  lower_name.contains("team fortress") && lower_name.contains("opengl")
+}
+
+fn is_high_perf_window(name: &str) -> bool {
+  is_tf2_window(name)
+}
+
+
+static UTC_S_LAST_SET_PERFORMANCE_CPU: once_cell::sync::Lazy<std::sync::atomic::AtomicUsize> = once_cell::sync::Lazy::new(||
+  std::sync::atomic::AtomicUsize::new(0)
+);
+static UTC_S_LAST_SET_ONDEMAND_CPU_OR_BETTER: once_cell::sync::Lazy<std::sync::atomic::AtomicUsize> = once_cell::sync::Lazy::new(||
+  std::sync::atomic::AtomicUsize::new(0)
+);
+
+
 // Every state-capturing thing that _could_ want to put the CPU into high-performance or low-power mode
 // has to call this thing, passing in any immediately-new info in an argument.
 async fn make_cpu_governor_decisions(
   immediate_wanted_cpu_level: Option<&'static str>,
+  cpu_load_vals: Option<(f64, f64, f64)>
 ) {
   let current_gov = get_cpu().await;
   let mut set_gov = current_gov;
-  if let Some(immediate_wanted_cpu_level) = immediate_wanted_cpu_level {
-    if immediate_wanted_cpu_level == current_gov {
-      // NOP
+
+  let forced_to_go_powersave = tokio::fs::metadata("/tmp/force-cpu-powersave").await.is_ok();
+  let forced_to_go_performance = tokio::fs::metadata("/tmp/force-cpu-performance").await.is_ok();
+  let user_override_exists = forced_to_go_powersave || forced_to_go_performance;
+
+  if !user_override_exists {
+    // Do what the window/event hints tell us is good to do
+    if let Some(immediate_wanted_cpu_level) = immediate_wanted_cpu_level {
+      if immediate_wanted_cpu_level == current_gov {
+        // NOP
+      }
+      else {
+        set_cpu(immediate_wanted_cpu_level).await;
+        set_gov = immediate_wanted_cpu_level;
+      }
     }
     else {
-      on_wanted_cpu_level(immediate_wanted_cpu_level);
-      set_gov = immediate_wanted_cpu_level;
+      // Set up something based on historic data & current_gov
+      let focused_win_name = LAST_FOCUSED_WINDOW_NAME.read().await;
+      let lower_focused_win_name = focused_win_name.to_lowercase();
+
+      if current_gov == CPU_GOV_PERFORMANCE && !is_high_perf_window(&lower_focused_win_name) {
+        // If we are at performance & there are NO high-performance windows, go to ondemand
+        set_cpu(CPU_GOV_ONDEMAND).await;
+        set_gov = CPU_GOV_ONDEMAND;
+      }
+
+      // Only do this automatic load-based change if we are far away from having bumped CPU for performance wants
+      let seconds_since_last_performance_wanted = (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("Time travel!").as_secs() as usize) - UTC_S_LAST_SET_PERFORMANCE_CPU.load(std::sync::atomic::Ordering::Relaxed);
+      if seconds_since_last_performance_wanted > 32 {
+        if let Some((one_m, five_m, fifteen_m)) = cpu_load_vals {
+          // Test if system is under load & bump CPU?
+          if one_m > 3.8 && five_m > 2.8 {
+            // If > 3 cores are saturated, try to go to high performance
+            set_cpu(CPU_GOV_PERFORMANCE).await;
+            set_gov = CPU_GOV_PERFORMANCE;
+          }
+          else if one_m > 0.70 && one_m < 1.29 {
+            // if ~1-2 core used go lower
+            set_cpu(CPU_GOV_CONSERVATIVE).await;
+            set_gov = CPU_GOV_CONSERVATIVE;
+          }
+          else if one_m <= 0.70 {
+            // if <1 core used go low
+            set_cpu(CPU_GOV_POWERSAVE).await;
+            set_gov = CPU_GOV_POWERSAVE;
+          }
+        }
+      }
+    }
+  }
+  else {
+    // User override takes priority
+    if forced_to_go_performance {
+      set_cpu(CPU_GOV_PERFORMANCE).await;
+      set_gov = CPU_GOV_PERFORMANCE;
+    }
+    else if forced_to_go_powersave {
+      set_cpu(CPU_GOV_POWERSAVE).await;
+      set_gov = CPU_GOV_POWERSAVE;
     }
   }
 
-  if current_gov == CPU_GOV_PERFORMANCE {
-
-  }
 
   // Bookkeeping
   if set_gov == CPU_GOV_POWERSAVE {
@@ -1546,6 +1613,23 @@ async fn make_cpu_governor_decisions(
     IN_POWERSAVE_MODE.store(false, std::sync::atomic::Ordering::Relaxed);
   }
 
+
+  if set_gov == CPU_GOV_PERFORMANCE {
+    UTC_S_LAST_SET_PERFORMANCE_CPU.store(
+      std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("Time travel!").as_secs() as usize,
+      std::sync::atomic::Ordering::Relaxed
+    );
+    UTC_S_LAST_SET_ONDEMAND_CPU_OR_BETTER.store(
+      std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("Time travel!").as_secs() as usize,
+      std::sync::atomic::Ordering::Relaxed
+    );
+  }
+  else if set_gov == CPU_GOV_ONDEMAND {
+    UTC_S_LAST_SET_ONDEMAND_CPU_OR_BETTER.store(
+      std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("Time travel!").as_secs() as usize,
+      std::sync::atomic::Ordering::Relaxed
+    );
+  }
 
 }
 
@@ -1867,24 +1951,8 @@ async fn mount_swap_files() {
 
       }
 
-      // Only do this automatic load-based change if we are far away from having bumped CPU for performance wants
-      if seconds_since_UTC_S_LAST_PERFORMANCE_CPU_WANTED() > 240 {
-        // Also test if system is under load & if do bump CPU?
-        let (one_m, five_m, fifteen_m) = info.load_average();
-        if one_m > 3.8 && five_m > 2.8 {
-          // If > 3 cores are saturated, try to go to high performance
-          on_wanted_cpu_level(CPU_GOV_PERFORMANCE).await;
-        }
-        else if one_m > 0.70 && one_m < 1.29 {
-          // if ~1-2 core used go lower
-          on_wanted_cpu_level(CPU_GOV_CONSERVATIVE).await;
-        }
-        else if one_m <= 0.70 {
-          // if <1 core used go low
-          on_wanted_cpu_level(CPU_GOV_POWERSAVE).await;
-        }
-      }
-
+      let (one_m, five_m, fifteen_m) = info.load_average();
+      make_cpu_governor_decisions(None, Some((one_m, five_m, fifteen_m)) );
 
     }
 
