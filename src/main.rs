@@ -1398,6 +1398,7 @@ fn seconds_since_UTC_S_LAST_PERFORMANCE_CPU_WANTED() -> usize {
 async fn bump_cpu_for_performance_procs() {
   let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(1800));
 
+  let mut not_high_perf_pids = std::collections::HashSet::<i32>::with_capacity(2000);
   let mut have_high_cpu = false;
   let mut tick_count = 0;
   loop {
@@ -1411,8 +1412,13 @@ async fn bump_cpu_for_performance_procs() {
     }
 
     let mut want_high_cpu = false;
+    let mut num_procs = 0;
     for p in dump_error_and_ret!( procfs::process::all_processes() ) {
       if let Ok(p) = p {
+        num_procs += 1;
+        if not_high_perf_pids.contains(&p.pid) {
+          continue; // we already know!
+        }
         if let Ok(p_exe) = p.exe() {
           if let Some(p_file_name) = p_exe.file_name() {
             let p_file_name = p_file_name.to_string_lossy();
@@ -1429,6 +1435,9 @@ async fn bump_cpu_for_performance_procs() {
               want_high_cpu = true;
               break;
             }
+            else {
+              not_high_perf_pids.insert(p.pid); // this PID will remain not-high-performance forever, so don't bother re-checking!
+            }
           }
         }
       }
@@ -1439,16 +1448,21 @@ async fn bump_cpu_for_performance_procs() {
       have_high_cpu = get_cpu().await == CPU_GOV_PERFORMANCE;
     }
 
+    // Clear cache when we have >2x space known to be wasted!
+    if not_high_perf_pids.len() > 2 * num_procs {
+      not_high_perf_pids.clear();
+    }
+
     if want_high_cpu && !have_high_cpu {
       UTC_S_LAST_PERFORMANCE_CPU_WANTED.store(
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("Time travel!").as_secs() as usize,
         std::sync::atomic::Ordering::Relaxed
       );
-      on_wanted_cpu_level(CPU_GOV_PERFORMANCE).await;
+      make_cpu_governor_decisions(Some(CPU_GOV_PERFORMANCE)).await;
       have_high_cpu = true;
     }
     else if !want_high_cpu && have_high_cpu {
-      on_wanted_cpu_level(CPU_GOV_ONDEMAND).await;
+      make_cpu_governor_decisions(None).await;
       have_high_cpu = false;
       UTC_S_LAST_PERFORMANCE_CPU_WANTED.store(
         0,
@@ -1457,6 +1471,29 @@ async fn bump_cpu_for_performance_procs() {
     }
 
   }
+}
+
+// Every state-capturing thing that _could_ want to put the CPU into high-performance or low-power mode
+// has to call this thing, passing in any immediately-new info in an argument.
+async fn make_cpu_governor_decisions(
+  immediate_wanted_cpu_level: Option<&'static str>,
+) {
+  let current_gov = get_cpu().await;
+
+  if let Some(immediate_wanted_cpu_level) = immediate_wanted_cpu_level {
+    if immediate_wanted_cpu_level == current_gov {
+      return; // NOP
+    }
+    else {
+      on_wanted_cpu_level(immediate_wanted_cpu_level);
+    }
+  }
+
+  if current_gov == CPU_GOV_PERFORMANCE {
+
+  }
+
+
 }
 
 
@@ -1694,7 +1731,7 @@ async fn mount_swap_files() {
       let used_swap_bytes = total_swap_bytes - free_swap_bytes;
 
       let swap_fraction_used: f64 = used_swap_bytes as f64 / total_swap_bytes as f64;
-      if swap_fraction_used > 0.60 && num_swap_files_added < 20 /* at 80gb of swap we have other problems */ {
+      if swap_fraction_used > 0.40 && num_swap_files_added < 20 /* at 80gb of swap we have other problems */ {
         // Add more!
         num_swap_files_added += 1;
         let next_swap_file = (&swap_file_dir).join(format!("swap-{}", num_swap_files_added));
@@ -1744,7 +1781,7 @@ async fn mount_swap_files() {
 
 
       }
-      else if swap_fraction_used < 0.25 && num_swap_files_added > 0 {
+      else if swap_fraction_used < 0.30 && num_swap_files_added > 0 {
         // Remove some!
         let last_swap_file = swap_file_dir.join(format!("swap-{}", num_swap_files_added));
         if last_swap_file.exists() {
@@ -1760,7 +1797,7 @@ async fn mount_swap_files() {
       }
 
       // Only do this automatic load-based change if we are far away from having bumped CPU for performance wants
-      if seconds_since_UTC_S_LAST_PERFORMANCE_CPU_WANTED() > 300 {
+      if seconds_since_UTC_S_LAST_PERFORMANCE_CPU_WANTED() > 240 {
         // Also test if system is under load & if do bump CPU?
         let (one_m, five_m, fifteen_m) = info.load_average();
         if one_m > 3.8 && five_m > 2.8 {
