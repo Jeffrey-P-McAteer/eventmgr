@@ -1952,7 +1952,7 @@ async fn mount_swap_files() {
       }
 
       let (one_m, five_m, fifteen_m) = info.load_average();
-      make_cpu_governor_decisions(None, Some((one_m, five_m, fifteen_m)) );
+      make_cpu_governor_decisions(None, Some((one_m, five_m, fifteen_m)) ).await;
 
     }
 
