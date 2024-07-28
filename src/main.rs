@@ -1,5 +1,5 @@
 
-#![allow(unused_imports, )]
+#![allow(unused_imports, dead_code, unused_variables)]
 
 use futures::prelude::*;
 
@@ -177,7 +177,7 @@ async fn handle_exit_signals() {
     )
   );
   loop {
-    let mut want_shutdown = false;
+    let want_shutdown: bool;
     tokio::select!{
       _sig_int = int_stream.recv() => { want_shutdown = true; }
       _sig_term = term_stream.recv() => { want_shutdown = true; }
