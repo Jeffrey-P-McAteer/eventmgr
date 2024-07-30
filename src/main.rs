@@ -899,6 +899,8 @@ async fn bind_mount_azure_data() {
   let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(12));
   let mut powersave_interval = tokio::time::interval(tokio::time::Duration::from_secs(22));
 
+  let mut mount_info: mountinfo::MountInfo;
+
   loop {
     // wait at least one tick so we can fail early below w/o a hugely infinite loop
     if IN_POWERSAVE_MODE.load(std::sync::atomic::Ordering::Relaxed) {
@@ -908,8 +910,11 @@ async fn bind_mount_azure_data() {
       interval.tick().await;
     }
 
-    if azure_data_block_dev.exists() && is_mounted( &azure_data_mount.to_string_lossy() ).await {
-      break;
+    if let Ok(info) = mountinfo::MountInfo::new() {
+      if azure_data_block_dev.exists() && is_mounted(&info, &azure_data_mount.to_string_lossy() ).await {
+        mount_info = info;
+        break;
+      }
     }
   }
 
@@ -924,7 +929,7 @@ async fn bind_mount_azure_data() {
   // Firstly; iterate all system directories and delete child contents
   for (root_fs_dir, data_mnt_path) in data_mount_points.iter() {
     // If root_fs_dir is mounted, unmount it.
-    if is_mounted(root_fs_dir).await {
+    if is_mounted(&mount_info, root_fs_dir).await {
       dump_error_and_ret!(
         tokio::process::Command::new("sudo")
           .args(&["-n", "umount", root_fs_dir])
@@ -945,7 +950,7 @@ async fn bind_mount_azure_data() {
     }
 
     // Now is it mounted?
-    if is_mounted(root_fs_dir).await {
+    if is_mounted(&mount_info, root_fs_dir).await {
       continue; // Do not rm -rf files if they are mounted, just ignore for now.
     }
 
@@ -969,12 +974,16 @@ async fn bind_mount_azure_data() {
   loop {
     interval.tick().await;
 
+    if let Ok(info) = mountinfo::MountInfo::new() {
+      mount_info = info; // Update what we know
+    }
+
     // If the block device exists & we have not mounted to it, do that.
     if azure_data_block_dev.exists() && azure_data_mount.exists() && data_mount_points_mounted != 'd' {
       // bind-mount all folders in data_mount_points
       for (root_fs_dir, data_mnt_path) in data_mount_points.iter() {
         let data_mnt_path = azure_data_mount.join(data_mnt_path);
-        if is_mounted(root_fs_dir).await {
+        if is_mounted(&mount_info, root_fs_dir).await {
           dump_error_and_cont!(
             tokio::process::Command::new("sudo")
               .args(&["-n", "umount", root_fs_dir])
@@ -983,7 +992,7 @@ async fn bind_mount_azure_data() {
           );
           tokio::time::sleep(tokio::time::Duration::from_millis(110)).await;
         }
-        if is_mounted(root_fs_dir).await {
+        if is_mounted(&mount_info, root_fs_dir).await {
           continue;
         }
         dump_error!(
@@ -1013,7 +1022,7 @@ async fn bind_mount_azure_data() {
 
       // Bind-mount our /tmp/ to the folders to avoid data falling on to the root FS
       for (root_fs_dir, data_mnt_path) in data_mount_points.iter() {
-        if is_mounted(root_fs_dir).await {
+        if is_mounted(&mount_info, root_fs_dir).await {
           dump_error_and_cont!(
             tokio::process::Command::new("sudo")
               .args(&["-n", "umount", root_fs_dir])
@@ -1022,7 +1031,7 @@ async fn bind_mount_azure_data() {
           );
           tokio::time::sleep(tokio::time::Duration::from_millis(110)).await;
         }
-        if is_mounted(root_fs_dir).await {
+        if is_mounted(&mount_info, root_fs_dir).await {
           continue;
         }
         let data_mnt_path = tmp_data_mount.join(data_mnt_path);
@@ -1092,20 +1101,24 @@ async fn mount_disks() {
 
   // First, we use rmdir to remove all empty directories that exist under /mnt/
   let mut rmdir_cmd = vec!["-n", "rmdir"];
-  for (disk_block_device, disk_mount_items) in MOUNT_DISKS.entries() {
-    for (disk_mount_path, disk_mount_opts) in disk_mount_items.iter() {
-      if ! is_mounted(disk_mount_path).await {
-        rmdir_cmd.push(disk_mount_path);
+  if let Ok(info) = mountinfo::MountInfo::new() {
+    for (disk_block_device, disk_mount_items) in MOUNT_DISKS.entries() {
+      for (disk_mount_path, disk_mount_opts) in disk_mount_items.iter() {
+        if ! is_mounted(&info, disk_mount_path).await {
+          rmdir_cmd.push(disk_mount_path);
+        }
       }
     }
   }
 
-  dump_error!(
-    tokio::process::Command::new("sudo")
-      .args(&rmdir_cmd)
-      .status()
-      .await
-  );
+  if rmdir_cmd.len() > 2 {
+    dump_error!(
+      tokio::process::Command::new("sudo")
+        .args(&rmdir_cmd)
+        .status()
+        .await
+    );
+  }
 
   loop {
     if IN_POWERSAVE_MODE.load(std::sync::atomic::Ordering::Relaxed) {
@@ -1115,98 +1128,99 @@ async fn mount_disks() {
       interval.tick().await;
     }
 
+    if let Ok(info) = mountinfo::MountInfo::new() {
+      for (disk_block_device, disk_mount_items) in MOUNT_DISKS.entries() {
+        for (disk_mount_path, disk_mount_opts) in disk_mount_items.iter() {
+          if std::path::Path::new(disk_block_device).exists() {
+            if ! is_mounted(&info, disk_mount_path).await {
+              let disk_mount_path_existed: bool;
+              if ! std::path::Path::new(disk_mount_path).exists() {
+                disk_mount_path_existed = false;
+                println!("Because {:?} exists we are mounting {:?} with options {:?}", disk_block_device, disk_mount_path, disk_mount_opts);
+                // Sudo create it
+                dump_error!(
+                  tokio::process::Command::new("sudo")
+                    .args(&["-n", "mkdir", "-p", disk_mount_path])
+                    .status()
+                    .await
+                );
 
-    for (disk_block_device, disk_mount_items) in MOUNT_DISKS.entries() {
-      for (disk_mount_path, disk_mount_opts) in disk_mount_items.iter() {
-        if std::path::Path::new(disk_block_device).exists() {
-          if ! is_mounted(disk_mount_path).await {
-            let disk_mount_path_existed: bool;
-            if ! std::path::Path::new(disk_mount_path).exists() {
-              disk_mount_path_existed = false;
-              println!("Because {:?} exists we are mounting {:?} with options {:?}", disk_block_device, disk_mount_path, disk_mount_opts);
-              // Sudo create it
+                // Even if path previously exists, ensure jeffrey owns it
+                dump_error!(
+                  tokio::process::Command::new("sudo")
+                    .args(&["-n", "chown", "jeffrey", disk_mount_path])
+                    .status()
+                    .await
+                );
+              }
+              else {
+                disk_mount_path_existed = true;
+              }
+
+              // We're still not mounted, do the mount!
+              // If there are space chars in disk_mount_opts run as a command, else pass to "mount"
+              if disk_mount_opts.contains(" ") && !disk_mount_path_existed {
+                dump_error!(
+                  tokio::process::Command::new("sudo")
+                    .args(&["-n", "sh", "-c", disk_mount_opts])
+                    .status()
+                    .await
+                );
+              }
+              else {
+                dump_error!(
+                  tokio::process::Command::new("sudo")
+                    .args(&["-n", "mount", "-o", disk_mount_opts, disk_block_device, disk_mount_path])
+                    .status()
+                    .await
+                );
+              }
+
+              // Sleep for 1 sec to allow mount, & continue if we aren't mounted to avoid secondary mount failures.
+              tokio::time::sleep(tokio::time::Duration::from_millis(900)).await;
+              if ! is_mounted(&info, disk_mount_path).await {
+                continue;
+              }
+
+              // If it is mounted, clean Windorks nonsense by rm/rf-ing some files
               dump_error!(
                 tokio::process::Command::new("sudo")
-                  .args(&["-n", "mkdir", "-p", disk_mount_path])
+                  .args(&["-n", "rm", "-rf", format!("{}/$RECYCLE.BIN", disk_mount_path).as_str(), format!("{}/System Volume Information", disk_mount_path).as_str(), ])
                   .status()
                   .await
               );
 
-              // Even if path previously exists, ensure jeffrey owns it
-              dump_error!(
-                tokio::process::Command::new("sudo")
-                  .args(&["-n", "chown", "jeffrey", disk_mount_path])
-                  .status()
-                  .await
-              );
-            }
-            else {
-              disk_mount_path_existed = true;
-            }
+              if std::path::Path::new("/System Volume Information").exists() { // do same for root drive
+                dump_error!(
+                  tokio::process::Command::new("sudo")
+                    .args(&["-n", "rm", "-rf", "/$RECYCLE.BIN", "/System Volume Information", ])
+                    .status()
+                    .await
+                );
+              }
 
-            // We're still not mounted, do the mount!
-            // If there are space chars in disk_mount_opts run as a command, else pass to "mount"
-            if disk_mount_opts.contains(" ") && !disk_mount_path_existed {
-              dump_error!(
-                tokio::process::Command::new("sudo")
-                  .args(&["-n", "sh", "-c", disk_mount_opts])
-                  .status()
-                  .await
-              );
+              // sudo rm -rf /\$RECYCLE.BIN /System\ Volume\ Information
+
             }
-            else {
-              dump_error!(
-                tokio::process::Command::new("sudo")
-                  .args(&["-n", "mount", "-o", disk_mount_opts, disk_block_device, disk_mount_path])
-                  .status()
-                  .await
-              );
-            }
-
-            // Sleep for 1 sec to allow mount, & continue if we aren't mounted to avoid secondary mount failures.
-            tokio::time::sleep(tokio::time::Duration::from_millis(900)).await;
-            if ! is_mounted(disk_mount_path).await {
-              continue;
-            }
-
-            // If it is mounted, clean Windorks nonsense by rm/rf-ing some files
-            dump_error!(
-              tokio::process::Command::new("sudo")
-                .args(&["-n", "rm", "-rf", format!("{}/$RECYCLE.BIN", disk_mount_path).as_str(), format!("{}/System Volume Information", disk_mount_path).as_str(), ])
-                .status()
-                .await
-            );
-
-            if std::path::Path::new("/System Volume Information").exists() { // do same for root drive
-              dump_error!(
-                tokio::process::Command::new("sudo")
-                  .args(&["-n", "rm", "-rf", "/$RECYCLE.BIN", "/System Volume Information", ])
-                  .status()
-                  .await
-              );
-            }
-
-            // sudo rm -rf /\$RECYCLE.BIN /System\ Volume\ Information
-
           }
-        }
-        else {
-          // Block device does NOT exist, remove mountpoint if it exists!
-          // NOTE: if there is an i/o error (like with ifuse stuff) Path.exists() returns false!
-          if std::path::Path::new(disk_mount_path).exists() || is_mounted(disk_mount_path).await {
-            println!("Because {:?} does not exist we are un-mounting {:?} (options {:?} unused)", disk_block_device, disk_mount_path, disk_mount_opts);
-            dump_error!(
-              tokio::process::Command::new("sudo")
-                .args(&["-n", "umount", disk_mount_path])
-                .status()
-                .await
-            );
-            dump_error!(
-              tokio::process::Command::new("sudo")
-                .args(&["-n", "rmdir", "--parents", disk_mount_path])
-                .status()
-                .await
-            );
+          else {
+            // Block device does NOT exist, remove mountpoint if it exists!
+            // NOTE: if there is an i/o error (like with ifuse stuff) Path.exists() returns false!
+            if std::path::Path::new(disk_mount_path).exists() || is_mounted(&info, disk_mount_path).await {
+              println!("Because {:?} does not exist we are un-mounting {:?} (options {:?} unused)", disk_block_device, disk_mount_path, disk_mount_opts);
+              dump_error!(
+                tokio::process::Command::new("sudo")
+                  .args(&["-n", "umount", disk_mount_path])
+                  .status()
+                  .await
+              );
+              dump_error!(
+                tokio::process::Command::new("sudo")
+                  .args(&["-n", "rmdir", "--parents", disk_mount_path])
+                  .status()
+                  .await
+              );
+            }
           }
         }
       }
@@ -1231,20 +1245,24 @@ async fn mount_net_shares() {
 
   // First, we use rmdir to remove all empty directories that exist under /mnt/
   let mut rmdir_cmd = vec!["-n", "rmdir"];
-  for (share_host, disk_mount_items) in MOUNT_NET_SHARES.entries() {
-    for (disk_mount_path, disk_mount_opts) in disk_mount_items.iter() {
-      if ! is_mounted(disk_mount_path).await {
-        rmdir_cmd.push(disk_mount_path);
+  if let Ok(info) = mountinfo::MountInfo::new() {
+    for (share_host, disk_mount_items) in MOUNT_NET_SHARES.entries() {
+      for (disk_mount_path, disk_mount_opts) in disk_mount_items.iter() {
+        if ! is_mounted(&info, disk_mount_path).await {
+          rmdir_cmd.push(disk_mount_path);
+        }
       }
     }
   }
 
-  dump_error!(
-    tokio::process::Command::new("sudo")
-      .args(&rmdir_cmd)
-      .status()
-      .await
-  );
+  if rmdir_cmd.len() > 2 {
+    dump_error!(
+      tokio::process::Command::new("sudo")
+        .args(&rmdir_cmd)
+        .status()
+        .await
+    );
+  }
 
   // All secrets used by mount commands should read them here
   let mut network_subproc_env: std::collections::HashMap::<String, String> = std::collections::HashMap::<String, String>::new();
@@ -1273,135 +1291,136 @@ async fn mount_net_shares() {
       interval.tick().await;
     }
 
-    for (share_host, disk_mount_items) in MOUNT_NET_SHARES.entries() {
-      let mut can_ping_share_host: Option<bool> = None;
-      for (disk_mount_path, disk_mount_cmd) in disk_mount_items.iter() {
-        if ! is_mounted(disk_mount_path).await {
-          // Can we ping share_host?
-          if can_ping_share_host.is_none() {
-            let dns_results = tokio::time::timeout(
-              std::time::Duration::from_millis(12500),
-              tokio::net::lookup_host(share_host)
-            ).await;
-            if let Ok(dns_results) = dns_results {
+    if let Ok(info) = mountinfo::MountInfo::new() {
+      for (share_host, disk_mount_items) in MOUNT_NET_SHARES.entries() {
+        let mut can_ping_share_host: Option<bool> = None;
+        for (disk_mount_path, disk_mount_cmd) in disk_mount_items.iter() {
+          if ! is_mounted(&info, disk_mount_path).await {
+            // Can we ping share_host?
+            if can_ping_share_host.is_none() {
+              let dns_results = tokio::time::timeout(
+                std::time::Duration::from_millis(12500),
+                tokio::net::lookup_host(share_host)
+              ).await;
               if let Ok(dns_results) = dns_results {
-                let mut num_ips = 0;
-                for dns_result in dns_results {
-                  println!("dns_result = {:?}", dns_result.ip() );
-                  num_ips += 1;
-                }
-                if num_ips > 0 {
-                  can_ping_share_host = Some(true); // got results
-                  host_missed_pings.insert(share_host, 0); // clear missed pings
+                if let Ok(dns_results) = dns_results {
+                  let mut num_ips = 0;
+                  for dns_result in dns_results {
+                    println!("dns_result = {:?}", dns_result.ip() );
+                    num_ips += 1;
+                  }
+                  if num_ips > 0 {
+                    can_ping_share_host = Some(true); // got results
+                    host_missed_pings.insert(share_host, 0); // clear missed pings
+                  }
+                  else {
+                    println!("Got no data (inner) from tokio::net::lookup_host({})", &share_host);
+                    can_ping_share_host = Some(false); // no data!
+                  }
                 }
                 else {
-                  println!("Got no data (inner) from tokio::net::lookup_host({})", &share_host);
+                  //println!("Got no data from tokio::net::lookup_host({})", &share_host);
                   can_ping_share_host = Some(false); // no data!
+
+                  // We try something old-school and slow to try and fix the situation;
+                  let systemd_resolved_endpt = std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 53)), 53);
+
+                  let config = rsdns::clients::ClientConfig::with_nameserver(systemd_resolved_endpt);
+
+                  if let Ok(mut client) = rsdns::clients::std::Client::new(config) {
+                    if let Ok(rrset) = client.query_rrset::<rsdns::records::data::A>(share_host, rsdns::records::Class::IN) {
+                      for ip_res in rrset.rdata {
+                        //println!("DNS A rrset.ip_res = {:?}", ip_res);
+                        can_ping_share_host = Some(true); // Got at least one result!
+                      }
+                    }
+                    if let Ok(rrset) = client.query_rrset::<rsdns::records::data::Aaaa>(share_host, rsdns::records::Class::IN) {
+                      for ip_res in rrset.rdata {
+                        //println!("DNS AAAA rrset.ip_res = {:?}", ip_res);
+                        can_ping_share_host = Some(true); // Got at least one result!
+                      }
+                    }
+                  }
+
                 }
               }
               else {
-                //println!("Got no data from tokio::net::lookup_host({})", &share_host);
-                can_ping_share_host = Some(false); // no data!
+                println!("Timed out while trying to get tokio::net::lookup_host({})", &share_host);
+                can_ping_share_host = Some(false); // timeout!
+              }
+            }
+            if let Some(can_ping_share_host) = can_ping_share_host {
+              if can_ping_share_host {
+                // Not mounted but can ping, mount!
 
-                // We try something old-school and slow to try and fix the situation;
-                let systemd_resolved_endpt = std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 53)), 53);
+                println!("We can ping {} but have not yet mounted {}, mounting...", share_host, disk_mount_path);
 
-                let config = rsdns::clients::ClientConfig::with_nameserver(systemd_resolved_endpt);
+                dump_error!(
+                  tokio::process::Command::new("sudo")
+                    .args(&["-n", "mkdir", "-p", disk_mount_path])
+                    .status()
+                    .await
+                );
 
-                if let Ok(mut client) = rsdns::clients::std::Client::new(config) {
-                  if let Ok(rrset) = client.query_rrset::<rsdns::records::data::A>(share_host, rsdns::records::Class::IN) {
-                    for ip_res in rrset.rdata {
-                      //println!("DNS A rrset.ip_res = {:?}", ip_res);
-                      can_ping_share_host = Some(true); // Got at least one result!
-                    }
-                  }
-                  if let Ok(rrset) = client.query_rrset::<rsdns::records::data::Aaaa>(share_host, rsdns::records::Class::IN) {
-                    for ip_res in rrset.rdata {
-                      //println!("DNS AAAA rrset.ip_res = {:?}", ip_res);
-                      can_ping_share_host = Some(true); // Got at least one result!
-                    }
-                  }
-                }
+                dump_error!(
+                  tokio::process::Command::new("sudo")
+                    .args(&["-n", "chown", "jeffrey:jeffrey", disk_mount_path])
+                    .status()
+                    .await
+                );
+
+                dump_error!(
+                  tokio::process::Command::new("sudo")
+                    .envs(&network_subproc_env)
+                    .args(&["--preserve-env", "-n", "sh", "-c", disk_mount_cmd])
+                    .status()
+                    .await
+                );
 
               }
             }
-            else {
-              println!("Timed out while trying to get tokio::net::lookup_host({})", &share_host);
-              can_ping_share_host = Some(false); // timeout!
-            }
           }
-          if let Some(can_ping_share_host) = can_ping_share_host {
-            if can_ping_share_host {
-              // Not mounted but can ping, mount!
-
-              println!("We can ping {} but have not yet mounted {}, mounting...", share_host, disk_mount_path);
+          else {
+            // We are mounted, can we ping? If not then un-mount
+            if can_ping_share_host.is_none() {
+              let dns_results = tokio::time::timeout(
+                std::time::Duration::from_millis(4500),
+                tokio::net::lookup_host(share_host)
+              ).await;
+              if let Ok(dns_results) = dns_results {
+                host_missed_pings.insert(share_host, 0); // Host is alive!
+              }
+              else {
+                // Increment number of missed pings
+                let num_missed_pings = host_missed_pings.get(share_host).unwrap_or(&0);
+                host_missed_pings.insert(share_host, num_missed_pings + 1 );
+              }
+            }
+            let num_missed_pings = host_missed_pings.get(share_host).unwrap_or(&0);
+            let num_missed_pings = *num_missed_pings;
+            if num_missed_pings >= HOST_MAX_MISSED_PINGS {
+              println!("{} is mounted but host {} has disappeared (num_missed_pings={}), un-mounting!", disk_mount_path, share_host, num_missed_pings);
 
               dump_error!(
                 tokio::process::Command::new("sudo")
-                  .args(&["-n", "mkdir", "-p", disk_mount_path])
+                  .args(&["-n", "umount", disk_mount_path])
                   .status()
                   .await
               );
 
               dump_error!(
                 tokio::process::Command::new("sudo")
-                  .args(&["-n", "chown", "jeffrey:jeffrey", disk_mount_path])
-                  .status()
-                  .await
-              );
-
-              dump_error!(
-                tokio::process::Command::new("sudo")
-                  .envs(&network_subproc_env)
-                  .args(&["--preserve-env", "-n", "sh", "-c", disk_mount_cmd])
+                  .args(&["-n", "rmdir", "--parents", disk_mount_path])
                   .status()
                   .await
               );
 
             }
-          }
-        }
-        else {
-          // We are mounted, can we ping? If not then un-mount
-          if can_ping_share_host.is_none() {
-            let dns_results = tokio::time::timeout(
-              std::time::Duration::from_millis(4500),
-              tokio::net::lookup_host(share_host)
-            ).await;
-            if let Ok(dns_results) = dns_results {
-              host_missed_pings.insert(share_host, 0); // Host is alive!
-            }
-            else {
-              // Increment number of missed pings
-              let num_missed_pings = host_missed_pings.get(share_host).unwrap_or(&0);
-              host_missed_pings.insert(share_host, num_missed_pings + 1 );
-            }
-          }
-          let num_missed_pings = host_missed_pings.get(share_host).unwrap_or(&0);
-          let num_missed_pings = *num_missed_pings;
-          if num_missed_pings >= HOST_MAX_MISSED_PINGS {
-            println!("{} is mounted but host {} has disappeared (num_missed_pings={}), un-mounting!", disk_mount_path, share_host, num_missed_pings);
-
-            dump_error!(
-              tokio::process::Command::new("sudo")
-                .args(&["-n", "umount", disk_mount_path])
-                .status()
-                .await
-            );
-
-            dump_error!(
-              tokio::process::Command::new("sudo")
-                .args(&["-n", "rmdir", "--parents", disk_mount_path])
-                .status()
-                .await
-            );
 
           }
-
         }
       }
     }
-
 
   }
 }
@@ -1703,14 +1722,16 @@ async fn unmount_all_disks() {
   }
 
   for _ in 0..4 { // just try several times in case a sub-directory is mounted?
-    for possibly_mounted_disk_path in all_possible_disk_mount_paths.iter() {
-      if is_mounted(possibly_mounted_disk_path).await {
-        dump_error!(
-          tokio::process::Command::new("sudo")
-            .args(&["-n", "umount", possibly_mounted_disk_path])
-            .status()
-            .await
-        );
+    if let Ok(info) = mountinfo::MountInfo::new() {
+      for possibly_mounted_disk_path in all_possible_disk_mount_paths.iter() {
+        if is_mounted(&info, possibly_mounted_disk_path).await {
+          dump_error!(
+            tokio::process::Command::new("sudo")
+              .args(&["-n", "umount", possibly_mounted_disk_path])
+              .status()
+              .await
+          );
+        }
       }
     }
   }
@@ -1815,13 +1836,14 @@ async fn mount_swap_files() {
   let external_scratch_usb_disk = "/dev/disk/by-partuuid/e08214f5-cfc5-4252-afee-505dfcd23808";
   let internal_sd_card = "/dev/disk/by-partuuid/8f3ca68c-d031-2d41-849c-be5d9602e920";
 
+  let mount_info = dump_error_and_ret!( mountinfo::MountInfo::new() );
 
-  let swap_file_dir: std::path::PathBuf = match get_mount_pt_of(external_scratch_usb_disk).await {
+  let swap_file_dir: std::path::PathBuf = match get_mount_pt_of(&mount_info, external_scratch_usb_disk).await {
     Some(mount_pt) => {
       mount_pt.join("swap-files")
     }
     None => {
-      match get_mount_pt_of(internal_sd_card).await {
+      match get_mount_pt_of(&mount_info, internal_sd_card).await {
         Some(mount_pt) => {
           mount_pt.join("swap-files")
         }
@@ -1968,25 +1990,20 @@ async fn turn_off_misc_lights() {
 
 
 
-async fn get_mount_pt_of(device_path: &str) -> Option<std::path::PathBuf> {
+async fn get_mount_pt_of(info: &mountinfo::MountInfo, device_path: &str) -> Option<std::path::PathBuf> {
   if let Ok(device_path) = tokio::fs::canonicalize(device_path).await {
-    if let Ok(info) = mountinfo::MountInfo::new() {
-      for mount_pt in info.mounting_points {
-        //println!("mount_pt={:?}", mount_pt);
-        if std::path::PathBuf::from(mount_pt.what) == device_path {
-          return Some(mount_pt.path);
-        }
+    for mount_pt in &info.mounting_points {
+      //println!("mount_pt={:?}", mount_pt);
+      if std::path::PathBuf::from(mount_pt.what.clone()) == device_path {
+        return Some( mount_pt.path.clone() );
       }
     }
   }
   return None;
 }
 
-async fn is_mounted(directory_path: &str) -> bool {
-  if let Ok(info) = mountinfo::MountInfo::new() {
-    return info.is_mounted(directory_path);
-  }
-  return false;
+async fn is_mounted(info: &mountinfo::MountInfo, directory_path: &str) -> bool {
+  return info.is_mounted(directory_path);
 }
 
 async fn set_cpu(governor: &str) {
