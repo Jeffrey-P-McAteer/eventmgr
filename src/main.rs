@@ -6,6 +6,7 @@ use futures::prelude::*;
 use std::borrow::Borrow;
 use std::str::FromStr;
 use measure_time::{info_time, debug_time, trace_time, error_time, print_time};
+use tokio::time::MissedTickBehavior;
 
 pub const SERVER_SOCKET: &'static str = "/tmp/eventmgr.sock";
 
@@ -62,7 +63,9 @@ async fn eventmgr() {
 
   // We check for failed tasks and re-start them every 6 seconds
   let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(6));
+  interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
   let mut powersave_interval = tokio::time::interval(tokio::time::Duration::from_secs(26));
+  powersave_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
   loop {
     if IN_POWERSAVE_MODE.load(std::sync::atomic::Ordering::Relaxed) {
@@ -529,7 +532,9 @@ async fn poll_device_audio_playback() {
   }
 
   let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(1800));
+  interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
   let mut powersave_interval = tokio::time::interval(tokio::time::Duration::from_millis(8200));
+  powersave_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
   interval.tick().await; // Wait 1 tick before recording
 
@@ -670,7 +675,9 @@ pub const QUARANTINE_DELETE_SECS: u64 = (3 * 24) * (60 * 60);
 
 async fn poll_downloads() {
   let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(45));
+  interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
   let mut powersave_interval = tokio::time::interval(tokio::time::Duration::from_secs(75));
+  powersave_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
   loop {
     if IN_POWERSAVE_MODE.load(std::sync::atomic::Ordering::Relaxed) {
@@ -777,7 +784,9 @@ static WALLPAPER_DIR_WEIGHTS: phf::Map<&'static str, usize> = phf::phf_map! {
 async fn poll_wallpaper_rotation() {
   //let mut interval = tokio::time::interval(tokio::time::Duration::from_secs( 180 ));
   let mut small_interval = tokio::time::interval(tokio::time::Duration::from_millis( 800 ));
+  small_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
   let mut small_powersave_interval = tokio::time::interval(tokio::time::Duration::from_millis( 3200 ));
+  small_powersave_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
   let mut weights_total: usize = 0;
   for (_, weight) in WALLPAPER_DIR_WEIGHTS.entries() {
@@ -856,6 +865,7 @@ async fn poll_wallpaper_rotation() {
 
 async fn poll_check_glucose() {
   let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(120));
+  interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
   loop {
     interval.tick().await;
 
@@ -897,7 +907,9 @@ async fn bind_mount_azure_data() {
   let mut data_mount_points_mounted = 'n';
 
   let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(12));
+  interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
   let mut powersave_interval = tokio::time::interval(tokio::time::Duration::from_secs(22));
+  powersave_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
   let mut mount_info: mountinfo::MountInfo;
 
@@ -1097,7 +1109,9 @@ static MOUNT_DISKS: phf::Map<&'static str, &[(&'static str, &'static str)] > = p
 
 async fn mount_disks() {
   let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(4));
+  interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
   let mut powersave_interval = tokio::time::interval(tokio::time::Duration::from_secs(9));
+  powersave_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
   // First, we use rmdir to remove all empty directories that exist under /mnt/
   let mut rmdir_cmd = vec!["-n", "rmdir"];
@@ -1241,7 +1255,9 @@ static MOUNT_NET_SHARES: phf::Map<&'static str, &[(&'static str, &'static str)] 
 
 async fn mount_net_shares() {
   let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(32));
+  interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
   let mut powersave_interval = tokio::time::interval(tokio::time::Duration::from_secs(98));
+  powersave_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
   // First, we use rmdir to remove all empty directories that exist under /mnt/
   let mut rmdir_cmd = vec!["-n", "rmdir"];
@@ -1437,7 +1453,9 @@ fn process_has_high_cpu_environ_set(p: &procfs::process::Process) -> bool {
 
 async fn bump_cpu_for_performance_procs() {
   let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(1800));
+  interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
   let mut powersave_interval = tokio::time::interval(tokio::time::Duration::from_millis(5200));
+  powersave_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
   let mut not_high_perf_pids = std::collections::HashSet::<i32>::with_capacity(2000);
   let mut have_high_cpu = false;
@@ -1775,7 +1793,9 @@ async fn unpause_proc(name: &str) {
 
 async fn partial_resume_paused_procs() {
   let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(600));
+  interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
   let mut powersave_interval = tokio::time::interval(tokio::time::Duration::from_millis(1300));
+  powersave_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
   loop {
     let in_powersave_mode = IN_POWERSAVE_MODE.load(std::sync::atomic::Ordering::Relaxed);
     if in_powersave_mode {
@@ -1829,7 +1849,9 @@ async fn partial_resume_paused_procs() {
 
 async fn mount_swap_files() {
   let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(4400));
+  interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
   let mut powersave_interval = tokio::time::interval(tokio::time::Duration::from_millis(9600));
+  powersave_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
   interval.tick().await;
 
@@ -1961,6 +1983,7 @@ async fn mount_swap_files() {
 
 async fn turn_off_misc_lights() {
   let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(52));
+  interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
   // find /sys -name brightness -print -exec cat {} \; 2>/dev/null
   let files_to_write_0_to = &[
