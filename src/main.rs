@@ -61,6 +61,9 @@ async fn eventmgr() {
     PersistentAsyncTask::new("turn_off_misc_lights",             ||{ tokio::task::spawn(turn_off_misc_lights()) }),
   ];
 
+  // Spawn one non-repeating task
+  tokio::task::spawn(once_at_startup());
+
   // We check for failed tasks and re-start them every 6 seconds
   let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(6));
   interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -81,6 +84,27 @@ async fn eventmgr() {
 
   }
 }
+
+async fn once_at_startup() {
+  // Set Wifi in high-power mode w/
+  // sudo iw reg set BO ; sudo iwconfig wlan0 txpower 30
+  dump_error!(
+    tokio::process::Command::new("sudo")
+      .args(&["-n", "iw", "reg", "set", "BO" ])
+      .status()
+      .await
+  );
+  let wlan_names = &["wlan0"];
+  for wlan_name in wlan_names {
+    dump_error!(
+      tokio::process::Command::new("sudo")
+        .args(&["-n", "iwconfig", wlan_name, "txpower", "29" ])
+        .status()
+        .await
+    );
+  }
+}
+
 
 const NOTIFICATION_TIMEOUT_MS: u32 = 1800;
 
