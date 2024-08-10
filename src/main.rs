@@ -380,6 +380,14 @@ static LAST_FOCUSED_WINDOW_NAME: once_cell::sync::Lazy<tokio::sync::RwLock<Strin
   tokio::sync::RwLock::new( "".to_owned() )
 );
 
+static HAVE_HIGH_PERF_WINDOW_VISIBLE: once_cell::sync::Lazy<std::sync::atomic::AtomicBool> = once_cell::sync::Lazy::new(||
+  std::sync::atomic::AtomicBool::new(false)
+);
+static HAVE_LOW_PERF_WINDOW_VISIBLE: once_cell::sync::Lazy<std::sync::atomic::AtomicBool> = once_cell::sync::Lazy::new(||
+  std::sync::atomic::AtomicBool::new(false)
+);
+
+
 async fn on_window_focus(window_name: &str, sway_node: &swayipc_async::Node) {
   //print_time!("on_window_focus"); // recorded 8 -> 14ms
 
@@ -394,7 +402,10 @@ async fn on_window_focus(window_name: &str, sway_node: &swayipc_async::Node) {
 
   let lower_window = window_name.to_lowercase();
   if is_tf2_window(&lower_window) {
-    make_cpu_governor_decisions(Some(CPU_GOV_PERFORMANCE), None).await;
+    //make_cpu_governor_decisions(Some(CPU_GOV_PERFORMANCE), None).await;
+    HAVE_HIGH_PERF_WINDOW_VISIBLE.store(true, std::sync::atomic::Ordering::SeqCst);
+    HAVE_LOW_PERF_WINDOW_VISIBLE.store(false, std::sync::atomic::Ordering::SeqCst);
+    make_cpu_governor_decisions(None, None).await;
     unpause_proc("tf_linux64").await;
     UTC_S_LAST_SEEN_FS_TEAM_FORTRESS.store(
       std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("Time travel!").as_secs() as usize,
@@ -403,15 +414,26 @@ async fn on_window_focus(window_name: &str, sway_node: &swayipc_async::Node) {
   }
   else {
     if lower_window.contains(" - mpv") {
-      make_cpu_governor_decisions(Some(CPU_GOV_POWERSAVE), None).await;
+      HAVE_HIGH_PERF_WINDOW_VISIBLE.store(false, std::sync::atomic::Ordering::SeqCst);
+      HAVE_LOW_PERF_WINDOW_VISIBLE.store(true, std::sync::atomic::Ordering::SeqCst);
+      //make_cpu_governor_decisions(Some(CPU_GOV_POWERSAVE), None).await;
+      make_cpu_governor_decisions(None, None).await;
     }
     else if lower_window.contains("spice display") {
-      make_cpu_governor_decisions(Some(CPU_GOV_PERFORMANCE), None).await; // bump for VM
+      //make_cpu_governor_decisions(Some(CPU_GOV_PERFORMANCE), None).await; // bump for VM
+      HAVE_HIGH_PERF_WINDOW_VISIBLE.store(true, std::sync::atomic::Ordering::SeqCst);
+      HAVE_LOW_PERF_WINDOW_VISIBLE.store(false, std::sync::atomic::Ordering::SeqCst);
+      make_cpu_governor_decisions(None, None).await;
     }
     else if lower_window.contains("mozilla firefox") {
-      make_cpu_governor_decisions(Some(CPU_GOV_ONDEMAND), None).await; // todo possibly a custom per-browser ask
+      //make_cpu_governor_decisions(Some(CPU_GOV_ONDEMAND), None).await; // todo possibly a custom per-browser ask
+      HAVE_HIGH_PERF_WINDOW_VISIBLE.store(false, std::sync::atomic::Ordering::SeqCst);
+      HAVE_LOW_PERF_WINDOW_VISIBLE.store(false, std::sync::atomic::Ordering::SeqCst);
+      make_cpu_governor_decisions(None, None).await;
     }
     else {
+      HAVE_HIGH_PERF_WINDOW_VISIBLE.store(false, std::sync::atomic::Ordering::SeqCst);
+      HAVE_LOW_PERF_WINDOW_VISIBLE.store(false, std::sync::atomic::Ordering::SeqCst);
       make_cpu_governor_decisions(None, None).await;
     }
 
@@ -1475,6 +1497,10 @@ fn process_has_high_cpu_environ_set(p: &procfs::process::Process) -> bool {
   return false;
 }
 
+static HAVE_HIGH_PERF_BG_PROC: once_cell::sync::Lazy<std::sync::atomic::AtomicBool> = once_cell::sync::Lazy::new(||
+  std::sync::atomic::AtomicBool::new(false)
+);
+
 async fn bump_cpu_for_performance_procs() {
   let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(1800));
   interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -1541,8 +1567,11 @@ async fn bump_cpu_for_performance_procs() {
       not_high_perf_pids.clear();
     }
 
+    HAVE_HIGH_PERF_BG_PROC.store(want_high_cpu, std::sync::atomic::Ordering::SeqCst);
+
     if want_high_cpu && !have_high_cpu {
-      make_cpu_governor_decisions(Some(CPU_GOV_PERFORMANCE), None).await;
+      //make_cpu_governor_decisions(Some(CPU_GOV_PERFORMANCE), None).await;
+      make_cpu_governor_decisions(None, None).await;
       have_high_cpu = true;
     }
     else if !want_high_cpu && have_high_cpu {
@@ -1586,56 +1615,80 @@ async fn make_cpu_governor_decisions(
   if !user_override_exists {
     // Do what the window/event hints tell us is good to do
     if let Some(immediate_wanted_cpu_level) = immediate_wanted_cpu_level {
-      if immediate_wanted_cpu_level == current_gov {
-        // NOP
-      }
-      else {
+      if immediate_wanted_cpu_level != current_gov {
         set_cpu(immediate_wanted_cpu_level).await;
         set_gov = immediate_wanted_cpu_level;
       }
     }
     else {
       // Set up something based on historic data & current_gov
-      let focused_win_name = LAST_FOCUSED_WINDOW_NAME.read().await;
-      let lower_focused_win_name = focused_win_name.to_lowercase();
 
-      if current_gov == CPU_GOV_PERFORMANCE && !is_high_perf_window(&lower_focused_win_name) {
-        // If we are at performance & there are NO high-performance windows, go to ondemand
-        set_cpu(CPU_GOV_ONDEMAND).await;
-        set_gov = CPU_GOV_ONDEMAND;
+      let have_high_perf_bg_proc        = HAVE_HIGH_PERF_BG_PROC.load(std::sync::atomic::Ordering::SeqCst);
+      let have_low_perf_window_visible  = HAVE_LOW_PERF_WINDOW_VISIBLE.load(std::sync::atomic::Ordering::SeqCst);
+      let have_high_perf_window_visible = HAVE_HIGH_PERF_WINDOW_VISIBLE.load(std::sync::atomic::Ordering::SeqCst);
+
+      if have_high_perf_bg_proc && current_gov != CPU_GOV_PERFORMANCE {
+        set_cpu(CPU_GOV_PERFORMANCE).await;
+        set_gov = CPU_GOV_PERFORMANCE;
       }
+      else if have_high_perf_window_visible && current_gov != CPU_GOV_PERFORMANCE {
+        set_cpu(CPU_GOV_PERFORMANCE).await;
+        set_gov = CPU_GOV_PERFORMANCE;
+      }
+      else if have_low_perf_window_visible && current_gov != CPU_GOV_POWERSAVE {
+        set_cpu(CPU_GOV_POWERSAVE).await;
+        set_gov = CPU_GOV_POWERSAVE;
+      }
+      else {
+        // Other system heuristics
+        let focused_win_name = LAST_FOCUSED_WINDOW_NAME.read().await;
+        let lower_focused_win_name = focused_win_name.to_lowercase();
+        if current_gov == CPU_GOV_PERFORMANCE && !is_high_perf_window(&lower_focused_win_name) {
+          // If we are at performance & there are NO high-performance windows, go to ondemand
+          set_cpu(CPU_GOV_ONDEMAND).await;
+          set_gov = CPU_GOV_ONDEMAND;
+        }
 
-      // Only do this automatic load-based change if we are far away from having bumped CPU for performance wants
-      let seconds_since_last_performance_wanted = (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("Time travel!").as_secs() as usize) - UTC_S_LAST_SET_PERFORMANCE_CPU.load(std::sync::atomic::Ordering::Relaxed);
-      if seconds_since_last_performance_wanted > 32 {
-        if let Some((one_m, five_m, fifteen_m)) = cpu_load_vals {
-          // Test if system is under load & bump CPU?
-          if one_m > 3.8 && five_m > 2.8 {
-            // If > 3 cores are saturated, try to go to high performance
-            set_cpu(CPU_GOV_PERFORMANCE).await;
-            set_gov = CPU_GOV_PERFORMANCE;
-          }
-          else if one_m > 0.70 && one_m < 1.29 {
-            // if ~1-2 core used go lower
-            set_cpu(CPU_GOV_CONSERVATIVE).await;
-            set_gov = CPU_GOV_CONSERVATIVE;
-          }
-          else if one_m <= 0.70 {
-            // if <1 core used go low
-            set_cpu(CPU_GOV_POWERSAVE).await;
-            set_gov = CPU_GOV_POWERSAVE;
+        // Only do this automatic load-based change if we are far away from having bumped CPU for performance wants
+        let seconds_since_last_performance_wanted = (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("Time travel!").as_secs() as usize) - UTC_S_LAST_SET_PERFORMANCE_CPU.load(std::sync::atomic::Ordering::Relaxed);
+        if seconds_since_last_performance_wanted > 32 {
+          if let Some((one_m, five_m, fifteen_m)) = cpu_load_vals {
+            // Test if system is under load & bump CPU?
+            if one_m > 3.8 && five_m > 2.8 {
+              // If > 3 cores are saturated, try to go to high performance
+              if current_gov != CPU_GOV_PERFORMANCE {
+                set_cpu(CPU_GOV_PERFORMANCE).await;
+                set_gov = CPU_GOV_PERFORMANCE;
+              }
+            }
+            else if one_m > 0.70 && one_m < 1.29 {
+              // if ~1-2 core used go lower
+              if current_gov != CPU_GOV_CONSERVATIVE {
+                set_cpu(CPU_GOV_CONSERVATIVE).await;
+                set_gov = CPU_GOV_CONSERVATIVE;
+              }
+            }
+            else if one_m <= 0.70 {
+              // if <1 core used go low
+              if current_gov != CPU_GOV_POWERSAVE {
+                set_cpu(CPU_GOV_POWERSAVE).await;
+                set_gov = CPU_GOV_POWERSAVE;
+              }
+            }
           }
         }
+
+        // end other system heuristics
       }
     }
   }
   else {
     // User override takes priority
-    if forced_to_go_performance {
+    if forced_to_go_performance && current_gov != CPU_GOV_PERFORMANCE {
       set_cpu(CPU_GOV_PERFORMANCE).await;
       set_gov = CPU_GOV_PERFORMANCE;
     }
-    else if forced_to_go_powersave {
+    else if forced_to_go_powersave && current_gov != CPU_GOV_POWERSAVE {
       set_cpu(CPU_GOV_POWERSAVE).await;
       set_gov = CPU_GOV_POWERSAVE;
     }
