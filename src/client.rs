@@ -243,6 +243,13 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
         .args(&["cpupower", "frequency-set", "-g", crate::CPU_GOV_POWERSAVE ])
         .status()
     );
+    // Remove any high-cpu file if exists
+    dump_error!(
+      std::fs::remove_file("/tmp/force-cpu-performance")
+    );
+    dump_error!(
+      std::fs::write("/tmp/force-cpu-powersave", "-")
+    );
     // Lock screen
     dump_error!(
       std::process::Command::new("swaylock")
@@ -258,6 +265,10 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
       std::process::Command::new("swaymsg")
         .args(&["output * dpms on"])
         .status()
+    );
+    // Remove low-cpu file
+    dump_error!(
+      std::fs::remove_file("/tmp/force-cpu-powersave")
     );
     return true;
   }
