@@ -425,12 +425,6 @@ async fn on_window_focus(window_name: &str, sway_node: &swayipc_async::Node) {
       HAVE_LOW_PERF_WINDOW_VISIBLE.store(false, std::sync::atomic::Ordering::SeqCst);
       make_cpu_governor_decisions(None, None).await;
     }
-    else if lower_window.contains("mozilla firefox") {
-      //make_cpu_governor_decisions(Some(CPU_GOV_ONDEMAND), None).await; // todo possibly a custom per-browser ask
-      HAVE_HIGH_PERF_WINDOW_VISIBLE.store(false, std::sync::atomic::Ordering::SeqCst);
-      HAVE_LOW_PERF_WINDOW_VISIBLE.store(false, std::sync::atomic::Ordering::SeqCst);
-      make_cpu_governor_decisions(None, None).await;
-    }
     else {
       HAVE_HIGH_PERF_WINDOW_VISIBLE.store(false, std::sync::atomic::Ordering::SeqCst);
       HAVE_LOW_PERF_WINDOW_VISIBLE.store(false, std::sync::atomic::Ordering::SeqCst);
@@ -1692,6 +1686,10 @@ async fn make_cpu_governor_decisions(
         let lower_focused_win_name = focused_win_name.to_lowercase();
         if current_gov == CPU_GOV_PERFORMANCE && !is_high_perf_window(&lower_focused_win_name) {
           // If we are at performance & there are NO high-performance windows, go to ondemand
+          set_cpu(CPU_GOV_ONDEMAND).await;
+          set_gov = CPU_GOV_ONDEMAND;
+        }
+        else if lower_focused_win_name.contains("mozilla firefox") && !(current_gov == CPU_GOV_ONDEMAND || current_gov == CPU_GOV_CONSERVATIVE) {
           set_cpu(CPU_GOV_ONDEMAND).await;
           set_gov = CPU_GOV_ONDEMAND;
         }
