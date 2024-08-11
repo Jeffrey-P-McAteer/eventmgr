@@ -701,8 +701,14 @@ async fn handle_socket_msgs() {
       let msg_bytes = &msg_buf[0..msg_size];
       match ciborium::de::from_reader::<ciborium::Value, &[u8]>(msg_bytes) {
         Ok(msg_val) => {
-          println!("Got message: {:?}", &msg_val );
-          // TODO handle message
+          println!("[ handle_socket_msgs ] Got message: {:?}", &msg_val );
+          if let ciborium::value::Value::Array(vec_of_vals) = msg_val {
+            if vec_of_vals.len() == 2 {
+              if let ciborium::value::Value::Text(arg1_string) = &vec_of_vals[1] {
+                do_simple_client_arg1(&arg1_string).await;
+              }
+            }
+          }
         }
         Err(e) => {
           eprintln!("CBOR decoding error: {:?}", e);
@@ -713,6 +719,32 @@ async fn handle_socket_msgs() {
     }
   }
 
+}
+
+static KEYBOARD_IS_6S_INACTIVE: once_cell::sync::Lazy<std::sync::atomic::AtomicBool> = once_cell::sync::Lazy::new(||
+  std::sync::atomic::AtomicBool::new(false)
+);
+static KEYBOARD_IS_30S_INACTIVE: once_cell::sync::Lazy<std::sync::atomic::AtomicBool> = once_cell::sync::Lazy::new(||
+  std::sync::atomic::AtomicBool::new(false)
+);
+
+async fn do_simple_client_arg1(arg: &str) {
+
+  println!("do_simple_client_arg1({:?})", arg);
+
+  if arg == "keyboard-is-inactive-6s" {
+    KEYBOARD_IS_6S_INACTIVE.store(true, std::sync::atomic::Ordering::SeqCst);
+    make_cpu_governor_decisions(None, None).await;
+  }
+  else if arg == "keyboard-is-inactive-30s" {
+    KEYBOARD_IS_30S_INACTIVE.store(true, std::sync::atomic::Ordering::SeqCst);
+    make_cpu_governor_decisions(None, None).await;
+  }
+  else if arg == "keyboard-is-active" {
+    KEYBOARD_IS_6S_INACTIVE.store(false, std::sync::atomic::Ordering::SeqCst);
+    KEYBOARD_IS_30S_INACTIVE.store(false, std::sync::atomic::Ordering::SeqCst);
+    make_cpu_governor_decisions(None, None).await;
+  }
 }
 
 
@@ -1627,13 +1659,26 @@ async fn make_cpu_governor_decisions(
       let have_low_perf_window_visible  = HAVE_LOW_PERF_WINDOW_VISIBLE.load(std::sync::atomic::Ordering::SeqCst);
       let have_high_perf_window_visible = HAVE_HIGH_PERF_WINDOW_VISIBLE.load(std::sync::atomic::Ordering::SeqCst);
 
+      let keyboard_is_6s_inactive = KEYBOARD_IS_6S_INACTIVE.load(std::sync::atomic::Ordering::SeqCst);
+      let keyboard_is_30s_inactive = KEYBOARD_IS_30S_INACTIVE.load(std::sync::atomic::Ordering::SeqCst);
+
       if have_high_perf_bg_proc && current_gov != CPU_GOV_PERFORMANCE {
         set_cpu(CPU_GOV_PERFORMANCE).await;
         set_gov = CPU_GOV_PERFORMANCE;
       }
       else if have_high_perf_window_visible && current_gov != CPU_GOV_PERFORMANCE {
-        set_cpu(CPU_GOV_PERFORMANCE).await;
-        set_gov = CPU_GOV_PERFORMANCE;
+        if keyboard_is_6s_inactive && current_gov != CPU_GOV_CONSERVATIVE {
+          set_cpu(CPU_GOV_CONSERVATIVE).await;
+          set_gov = CPU_GOV_CONSERVATIVE;
+        }
+        else if keyboard_is_30s_inactive && current_gov != CPU_GOV_POWERSAVE {
+          set_cpu(CPU_GOV_POWERSAVE).await;
+          set_gov = CPU_GOV_POWERSAVE;
+        }
+        else {
+          set_cpu(CPU_GOV_PERFORMANCE).await;
+          set_gov = CPU_GOV_PERFORMANCE;
+        }
       }
       else if have_low_perf_window_visible && current_gov != CPU_GOV_POWERSAVE {
         set_cpu(CPU_GOV_POWERSAVE).await;
