@@ -1666,7 +1666,8 @@ async fn make_cpu_governor_decisions(
         set_cpu(CPU_GOV_PERFORMANCE).await;
         set_gov = CPU_GOV_PERFORMANCE;
       }
-      else if have_high_perf_window_visible && current_gov != CPU_GOV_PERFORMANCE {
+      else if have_high_perf_window_visible {
+
         if keyboard_is_6s_inactive && current_gov != CPU_GOV_CONSERVATIVE {
           set_cpu(CPU_GOV_CONSERVATIVE).await;
           set_gov = CPU_GOV_CONSERVATIVE;
@@ -1675,10 +1676,11 @@ async fn make_cpu_governor_decisions(
           set_cpu(CPU_GOV_POWERSAVE).await;
           set_gov = CPU_GOV_POWERSAVE;
         }
-        else {
+        else if current_gov != CPU_GOV_PERFORMANCE {
           set_cpu(CPU_GOV_PERFORMANCE).await;
           set_gov = CPU_GOV_PERFORMANCE;
         }
+
       }
       else if have_low_perf_window_visible && current_gov != CPU_GOV_POWERSAVE {
         set_cpu(CPU_GOV_POWERSAVE).await;
