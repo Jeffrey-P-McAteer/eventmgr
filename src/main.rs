@@ -436,7 +436,7 @@ async fn on_window_focus(window_name: &str, sway_node: &swayipc_async::Node) {
     if seconds_since_saw_tf2_fs < 900 {
       // AND we're not playing audio
       let currently_playing_audio = CURRENTLY_PLAYING_AUDIO.load(std::sync::atomic::Ordering::SeqCst);
-      if !currently_playing_audio {
+      if ! currently_playing_audio {
         pause_proc("tf_linux64").await;
       }
     }
@@ -621,7 +621,7 @@ async fn poll_device_audio_playback() {
           match r {
             Ok(simple) => {
               // Record several kilobytes...
-              let mut sound_buffer = [0u8; 8384];
+              let mut sound_buffer = [0u8; 16384];
 
               dump_error_and_cont!( simple.read(&mut sound_buffer) );
               let audio_vol_amount = rms_u8(&sound_buffer);
