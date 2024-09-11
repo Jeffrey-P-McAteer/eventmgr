@@ -1341,7 +1341,9 @@ async fn mount_net_shares() {
     for (share_host, disk_mount_items) in MOUNT_NET_SHARES.entries() {
       for (disk_mount_path, disk_mount_opts) in disk_mount_items.iter() {
         if ! is_mounted(&info, disk_mount_path).await {
-          rmdir_cmd.push(disk_mount_path);
+          if std::path::Path::new(disk_mount_path).exists() {
+            rmdir_cmd.push(disk_mount_path);
+          }
         }
       }
     }
