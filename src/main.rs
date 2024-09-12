@@ -2114,26 +2114,31 @@ async fn mount_swap_files() {
 
 
 async fn turn_off_misc_lights() {
-  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(52));
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(128));
   interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
   // find /sys -name brightness -print -exec cat {} \; 2>/dev/null
   let files_to_write_0_to = &[
     "/sys/devices/platform/thinkpad_acpi/leds/platform::micmute/brightness",
+    "/sys/devices/platform/thinkpad_acpi/leds/tpacpi::power/brightness",
+    "/sys/devices/platform/thinkpad_acpi/leds/tpacpi::lid_logo_dot/brightness",
+    "/sys/devices/platform/thinkpad_acpi/leds/tpacpi::thinkvantage/brightness",
+    "/sys/devices/platform/thinkpad_acpi/leds/platform::mute/brightness",
   ];
 
   loop {
     interval.tick().await;
 
     for file_to_write_0_to in files_to_write_0_to.iter() {
-      dump_error_and_ret!(
-        tokio::process::Command::new("sudo")
-          .args(&["-n", "sh", "-c", format!("echo 0 > {}", file_to_write_0_to).as_str(), ])
-          .status()
-          .await
-      );
+      if std::path::Path::new(file_to_write_0_to).exists() {
+        dump_error_and_ret!(
+          tokio::process::Command::new("sudo")
+            .args(&["-n", "sh", "-c", format!("echo 0 > {}", file_to_write_0_to).as_str(), ])
+            .status()
+            .await
+        );
+      }
     }
-
 
   }
 }
