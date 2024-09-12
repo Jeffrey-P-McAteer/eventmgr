@@ -1998,6 +1998,9 @@ async fn mount_swap_files() {
           mount_pt.join("swap-files")
         }
         None => {
+          // no swap-files parent dir exists; if we return, we will be _immediately_ re-started.
+          // Instead we just delay for 24 hours.
+          tokio::time::sleep( tokio::time::Duration::from_secs(24 * 60 * 60) ).await;
           return;
         }
       }
