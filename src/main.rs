@@ -56,7 +56,7 @@ async fn eventmgr() {
     PersistentAsyncTask::new("mount_net_shares",                 ||{ tokio::task::spawn(mount_net_shares()) }),
     PersistentAsyncTask::new("bump_cpu_for_performance_procs",   ||{ tokio::task::spawn(bump_cpu_for_performance_procs()) }),
     PersistentAsyncTask::new("partial_resume_paused_procs",      ||{ tokio::task::spawn(partial_resume_paused_procs()) }),
-    PersistentAsyncTask::new("bind_mount_azure_data",            ||{ tokio::task::spawn(bind_mount_azure_data()) }),
+    // PersistentAsyncTask::new("bind_mount_azure_data",            ||{ tokio::task::spawn(bind_mount_azure_data()) }),
     PersistentAsyncTask::new("mount_swap_files",                 ||{ tokio::task::spawn(mount_swap_files()) }),
     PersistentAsyncTask::new("turn_off_misc_lights",             ||{ tokio::task::spawn(turn_off_misc_lights()) }),
   ];
@@ -1141,13 +1141,14 @@ async fn bind_mount_azure_data() {
 
 
 static MOUNT_DISKS: phf::Map<&'static str, &[(&'static str, &'static str)] > = phf::phf_map! {
-  "/dev/disk/by-partuuid/8f3ca68c-d031-2d41-849c-be5d9602e920" =>
+  /*"/dev/disk/by-partuuid/8f3ca68c-d031-2d41-849c-be5d9602e920" =>
     &[
       ("/mnt/azure-data", "defaults,rw,autodefrag,compress=zstd:11,commit=300,nodatasum"),
       // sudo rmdir /mnt/azure-data/swap-files ; sudo btrfs subvolume create '/mnt/azure-data/@swap-files' ; sudo btrfs property set /mnt/azure-data/swap-files compression none
       ("/mnt/azure-data/swap-files", "defaults,rw,noatime,nodatacow,subvol=@swap-files,nodatasum")
     ],
     // ^^ compress=lzo is fast w/o huge compression ratios, zstd:9 is slower with better ratio. high commit seconds means disk writes are less common.
+  */
 
   //"/dev/disk/by-partuuid/53da446a-2409-ca42-8337-12389dc70563" =>  // Retired for now
   //  &[("/mnt/scratch", "auto,rw,noatime,data=writeback,barrier=0,nobh,errors=remount-ro")],
