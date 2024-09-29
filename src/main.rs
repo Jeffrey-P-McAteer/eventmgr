@@ -1803,7 +1803,25 @@ async fn make_cpu_governor_decisions(
 // anything < 4 is considered is an invalid value for PIDs,
 // anything > 4 will be paused. If a request for a new PID to be
 // paused comes in and all slots are full the request is ignored.
-static PAUSED_PROC_PIDS: once_cell::sync::Lazy<[std::sync::atomic::AtomicI32; 16]> = once_cell::sync::Lazy::new(|| [
+static PAUSED_PROC_PIDS: once_cell::sync::Lazy<[std::sync::atomic::AtomicI32; 32]> = once_cell::sync::Lazy::new(|| [
+  std::sync::atomic::AtomicI32::new(0),
+  std::sync::atomic::AtomicI32::new(0),
+  std::sync::atomic::AtomicI32::new(0),
+  std::sync::atomic::AtomicI32::new(0),
+  std::sync::atomic::AtomicI32::new(0),
+  std::sync::atomic::AtomicI32::new(0),
+  std::sync::atomic::AtomicI32::new(0),
+  std::sync::atomic::AtomicI32::new(0),
+
+  std::sync::atomic::AtomicI32::new(0),
+  std::sync::atomic::AtomicI32::new(0),
+  std::sync::atomic::AtomicI32::new(0),
+  std::sync::atomic::AtomicI32::new(0),
+  std::sync::atomic::AtomicI32::new(0),
+  std::sync::atomic::AtomicI32::new(0),
+  std::sync::atomic::AtomicI32::new(0),
+  std::sync::atomic::AtomicI32::new(0),
+
   std::sync::atomic::AtomicI32::new(0),
   std::sync::atomic::AtomicI32::new(0),
   std::sync::atomic::AtomicI32::new(0),
@@ -1997,10 +2015,10 @@ async fn partial_resume_paused_procs() {
 
     // Delay for 0.2s to allow continued procs to run
     if in_powersave_mode {
-      tokio::time::sleep( std::time::Duration::from_millis(95) ).await;
+      tokio::time::sleep( std::time::Duration::from_millis(115) ).await;
     }
     else {
-      tokio::time::sleep( std::time::Duration::from_millis(65) ).await;
+      tokio::time::sleep( std::time::Duration::from_millis(85) ).await;
     }
 
     for i in 0..PAUSED_PROC_PIDS.len() {
