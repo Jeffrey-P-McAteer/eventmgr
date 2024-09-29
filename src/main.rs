@@ -61,8 +61,11 @@ async fn eventmgr() {
     PersistentAsyncTask::new("turn_off_misc_lights",             ||{ tokio::task::spawn(turn_off_misc_lights()) }),
   ];
 
+  // Initialize any early-memory stuff
+  once_at_startup_blocking().await;
+
   // Spawn one non-repeating task
-  tokio::task::spawn(once_at_startup());
+  tokio::task::spawn(once_at_startup_nonblocking());
 
   // We check for failed tasks and re-start them every 6 seconds
   let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(6));
@@ -85,7 +88,28 @@ async fn eventmgr() {
   }
 }
 
-async fn once_at_startup() {
+static PAUSED_PROC_CPU_CORE: once_cell::sync::Lazy<std::sync::atomic::AtomicUsize> = once_cell::sync::Lazy::new(||
+  std::sync::atomic::AtomicUsize::new(0)
+);
+
+async fn once_at_startup_blocking() {
+  // Set some defaults
+  // Discovered the P14 super-E cores via:
+  //   cargo install raw-cpuid --features cli
+  //   for i in $(seq 0 22) ; do echo $i ; taskset -c "$i" cpuid > "/tmp/cpu_$i.txt" ; done
+  // and manually diffing eg /tmp/cpu_0.txt w/ /tmp/cpu_20.txt
+  // Biggest indicator of the super-E core was a lack of L3 cache.
+  // Regular E cores are 12-19 inclusive and these do have L3 cache.
+  if num_cpus::get() > 20 {
+    PAUSED_PROC_CPU_CORE.store(20, std::sync::atomic::Ordering::SeqCst);
+  }
+
+  // TODO possible hardware query!
+
+
+}
+
+async fn once_at_startup_nonblocking() {
   // Set Wifi in high-power mode w/
   // sudo iw reg set BO ; sudo iwconfig wlan0 txpower 30
   dump_error!(
@@ -1838,6 +1862,16 @@ async fn pause_pid(pid: i32) -> bool {
           nix::unistd::Pid::from_raw(pid), nix::sys::signal::Signal::SIGSTOP
         )
       );
+      // Finally we move the SIGSTOP-ed process to the paused core
+      let idle_core_num = PAUSED_PROC_CPU_CORE.load(std::sync::atomic::Ordering::SeqCst);
+      let idle_core_num_s = format!("{}", idle_core_num);
+      let pid_s = format!("{}", pid);
+      dump_error!(
+        tokio::process::Command::new("taskset")
+          .args(&["--all-tasks", "-cp", &idle_core_num_s, &pid_s ])
+          .status()
+          .await
+      );
       return true;
     }
   }
@@ -1892,6 +1926,15 @@ async fn unpause_pid(pid: i32) {
       PAUSED_PROC_PIDS[i].store(0, std::sync::atomic::Ordering::Relaxed);
     }
   }
+  // We first allow the PID to execute on _all_ cores (not just PAUSED_PROC_CPU_CORE)
+  let pid_s = format!("{}", pid);
+  dump_error!(
+    tokio::process::Command::new("taskset")
+      .args(&["--all-tasks", "-cp", "0-999", &pid_s ]) // TaskSet limits to max num CPUs, so 999 is safely "all cores" for the next 2 decades
+      .status()
+      .await
+  );
+  // Then SIGCONT
   dump_error_and_ret!(
     nix::sys::signal::kill(
       nix::unistd::Pid::from_raw(pid), nix::sys::signal::Signal::SIGCONT
