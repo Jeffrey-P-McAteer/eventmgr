@@ -111,13 +111,31 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
       "PTBLAJA000229",
     ];
     for ddcutil_serial in ddcutil_serials.iter() {
+      let exists_flag_file = format!("/tmp/.ddcutil_notpresent_{}", ddcutil_serial);
+
+      if std::path::Path::new(&exists_flag_file).exists() {
+        // 9 out of 10 times, exit!
+        let rand_num = fastrand::usize(0..100);
+        if rand_num < 90 {
+          continue;
+        }
+      }
+
       println!("wanted_ddcutil_brightness_val = {:?}", wanted_ddcutil_brightness_val);
       if let Some(wanted_ddcutil_brightness_val) = wanted_ddcutil_brightness_val {
-        dump_error!(
-          std::process::Command::new("ddcutil")
+        let res = std::process::Command::new("ddcutil")
             .args(&["setvcp", "0x10", format!("{}", wanted_ddcutil_brightness_val).as_str(), "--sn", ddcutil_serial, "--sleep-multiplier", "0.1", "--noverify"])
-            .status()
-        );
+            .status();
+        if let Ok(exit_status) = res {
+          if !exit_status.success() {
+            // This indicates ddcutil_serial is not connected; log to /tmp/ as such!
+            dump_error!( std::fs::write(exists_flag_file, "!") );
+          }
+          else if std::path::Path::new(&exists_flag_file).exists() {
+            // Delete it!
+            dump_error!( std::fs::remove_file(&exists_flag_file) );
+          }
+        }
       }
 
     }
