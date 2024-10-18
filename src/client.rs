@@ -116,7 +116,7 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
       if std::path::Path::new(&exists_flag_file).exists() {
         // 9 out of 10 times, exit!
         let rand_num = fastrand::usize(0..100);
-        if rand_num < 90 {
+        if rand_num < 95 {
           continue;
         }
       }
