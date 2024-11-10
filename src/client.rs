@@ -298,8 +298,7 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
 pub fn install_self() {
   // Assume we are running as root + write directly to service file
   let install_service_file = "/etc/systemd/system/eventmgr.service";
-  let install_service_str = format!(r#"
-[Unit]
+  let install_service_str = format!(r#"[Unit]
 Description=Jeff's event manager
 StartLimitIntervalSec=0
 
@@ -309,11 +308,16 @@ Restart=always
 RestartSec=1
 User=jeffrey
 ExecStart={exe}
-RuntimeMaxSec=180m
+RuntimeMaxSec=300m
+StandardError=journal
+StandardOutput=journal
+StandardInput=null
+TimeoutStopSec=4
 
 [Install]
 WantedBy=multi-user.target
 "#, exe=dump_error_and_ret!(std::env::current_exe()).to_string_lossy() );
+
   println!();
   println!("Installing to {}", install_service_file);
   println!("{}", install_service_str);
