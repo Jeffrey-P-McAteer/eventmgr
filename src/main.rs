@@ -556,7 +556,7 @@ static CURRENTLY_PLAYING_AUDIO: once_cell::sync::Lazy<std::sync::atomic::AtomicB
 
 // From   pactl list | grep -i monitor
 const PULSE_AUDIO_MONITOR_DEVICE_NAMES:  &'static [&'static str] = &[
-  "alsa_output.usb-Generic_USB_Audio-00.3.analog-stereo.monitor", // desk headphones
+  "alsa_output.usb-Generic_USB_Audio-00.analog-stereo", // desk headphones
   "alsa_output.pci-0000_00_1f.3.3.analog-stereo.monitor", // laptop speakers
 ];
 
