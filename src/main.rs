@@ -839,6 +839,7 @@ async fn poll_downloads() {
     while let Some(entry) = dump_error_and_ret!( entries.next_entry().await ) {
       let fname = entry.file_name();
       let fname = fname.to_string_lossy();
+      let mut extracted_something = false;
       if fname.to_lowercase().ends_with(".zip") && dump_error_and_ret!( entry.path().metadata() ).len() > 2 {
         // See if dir exists
         let unzip_dir = std::path::Path::new("/j/downloads").join( fname.replace(".zip", "") );
@@ -861,6 +862,8 @@ async fn poll_downloads() {
               .await
           );
 
+          extracted_something = true;
+
         }
       }
       else if fname.to_lowercase().ends_with(".7z") && dump_error_and_ret!( entry.path().metadata() ).len() > 2 {
@@ -871,20 +874,45 @@ async fn poll_downloads() {
 
           notify(format!("Unzipping {:?} to {:?}", entry.path(), unzip_dir).as_str()).await;
 
-          dump_error_and_ret!(
+          /*dump_error_and_ret!(
             tokio::process::Command::new("mkdir")
               .args(&["-p", unzip_dir.to_string_lossy().borrow() ])
               .status()
               .await
-          );
+          );*/
 
-          dump_error_and_ret!(
+          /*dump_error_and_ret!(
             tokio::process::Command::new("7z")
               .args(&["e", &format!("{}", unzip_dir.to_string_lossy()), entry.path().to_string_lossy().borrow() ])
               .status()
               .await
+          );*/
+
+          dump_error_and_ret!(
+            tokio::process::Command::new("7z")
+              .args(&["e", entry.path().to_string_lossy().borrow() ])
+              .status()
+              .await
           );
 
+          extracted_something = true;
+
+        }
+      }
+
+      if extracted_something {
+        // Touch _all_ files!
+        let mut entries = dump_error_and_ret!( tokio::fs::read_dir("/j/downloads").await );
+        while let Some(entry) = dump_error_and_ret!( entries.next_entry().await ) {
+          let p = entry.path();
+          let s = p.to_string_lossy();
+          let s: &str = s.borrow();
+          dump_error_and_ret!(
+            tokio::process::Command::new("touch")
+              .arg(s)
+              .status()
+              .await
+          );
         }
       }
     }
