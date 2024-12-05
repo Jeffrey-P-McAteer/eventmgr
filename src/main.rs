@@ -779,6 +779,8 @@ async fn poll_downloads() {
   let mut powersave_interval = tokio::time::interval(tokio::time::Duration::from_secs(75));
   powersave_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
+  let mut unzipped_files = std::collections::HashSet::<String>::new();
+
   loop {
     if IN_POWERSAVE_MODE.load(std::sync::atomic::Ordering::Relaxed) {
       powersave_interval.tick().await;
@@ -839,7 +841,13 @@ async fn poll_downloads() {
     while let Some(entry) = dump_error_and_ret!( entries.next_entry().await ) {
       let fname = entry.file_name();
       let fname = fname.to_string_lossy();
+      let fname_string = fname.to_string();
       let mut extracted_something = false;
+
+      if unzipped_files.contains(&fname_string) {
+        continue;
+      }
+
       if fname.to_lowercase().ends_with(".zip") && dump_error_and_ret!( entry.path().metadata() ).len() > 2 {
         // See if dir exists
         let unzip_dir = std::path::Path::new("/j/downloads").join( fname.replace(".zip", "") );
@@ -863,7 +871,7 @@ async fn poll_downloads() {
           );
 
           extracted_something = true;
-
+          unzipped_files.insert(fname_string);
         }
       }
       else if fname.to_lowercase().ends_with(".7z") && dump_error_and_ret!( entry.path().metadata() ).len() > 2 {
@@ -897,6 +905,7 @@ async fn poll_downloads() {
           );
 
           extracted_something = true;
+          unzipped_files.insert(fname_string);
 
         }
       }
