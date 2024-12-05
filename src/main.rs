@@ -872,7 +872,7 @@ async fn poll_downloads() {
         if !unzip_dir.exists() {
           // Unzip it!
 
-          notify(format!("Unzipping {:?} to {:?}", entry.path(), unzip_dir).as_str()).await;
+          notify(format!("Unzipping {:?}", entry.path()).as_str()).await;
 
           /*dump_error_and_ret!(
             tokio::process::Command::new("mkdir")
@@ -890,6 +890,7 @@ async fn poll_downloads() {
 
           dump_error_and_ret!(
             tokio::process::Command::new("7z")
+              .current_dir("/j/downloads")
               .args(&["e", entry.path().to_string_lossy().borrow() ])
               .status()
               .await
