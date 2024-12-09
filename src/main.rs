@@ -59,6 +59,7 @@ async fn eventmgr() {
     // PersistentAsyncTask::new("bind_mount_azure_data",            ||{ tokio::task::spawn(bind_mount_azure_data()) }),
     PersistentAsyncTask::new("mount_swap_files",                 ||{ tokio::task::spawn(mount_swap_files()) }),
     PersistentAsyncTask::new("turn_off_misc_lights",             ||{ tokio::task::spawn(turn_off_misc_lights()) }),
+    PersistentAsyncTask::new("update_dns_records",               ||{ tokio::task::spawn(update_dns_records()) }),
   ];
 
   // Initialize any early-memory stuff
@@ -2266,7 +2267,21 @@ async fn turn_off_misc_lights() {
   }
 }
 
+async fn update_dns_records() {
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(128));
+  interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
+  loop {
+    interval.tick().await;
+
+    dump_error_and_ret!(
+      tokio::process::Command::new("/j/bin/update-dns")
+        .status()
+        .await
+    );
+
+  }
+}
 
 
 
