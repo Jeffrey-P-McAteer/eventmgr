@@ -912,7 +912,8 @@ async fn poll_downloads() {
       }
 
       if extracted_something {
-        // Touch _all_ files!
+        /* todo re-design w/o touching _all_ files, just those that share a zip prefix name or something
+        // Touch _all_ files with mtimes older than the beginning of this loop; this protects against
         let mut entries = dump_error_and_ret!( tokio::fs::read_dir("/j/downloads").await );
         while let Some(entry) = dump_error_and_ret!( entries.next_entry().await ) {
           let p = entry.path();
@@ -925,6 +926,7 @@ async fn poll_downloads() {
               .await
           );
         }
+        */
       }
     }
 
