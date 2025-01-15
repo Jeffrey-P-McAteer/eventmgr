@@ -460,10 +460,13 @@ async fn on_window_focus(window_name: &str, sway_node: &swayipc_async::Node) {
     let seconds_since_saw_tf2_fs = (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("Time travel!").as_secs() as usize) - UTC_S_LAST_SEEN_FS_TEAM_FORTRESS.load(std::sync::atomic::Ordering::Relaxed);
     if seconds_since_saw_tf2_fs < 900 {
       // AND we're not playing audio
+      /*
       let currently_playing_audio = CURRENTLY_PLAYING_AUDIO.load(std::sync::atomic::Ordering::SeqCst);
       if ! currently_playing_audio {
         pause_proc("tf_linux64").await;
       }
+      */
+      pause_proc("tf_linux64").await;
     }
 
   }
@@ -1705,7 +1708,7 @@ async fn bump_cpu_for_performance_procs() {
 }
 
 fn is_tf2_window(lower_name: &str) -> bool {
-  lower_name.contains("team fortress") && lower_name.contains("opengl")
+  lower_name.contains("team") && lower_name.contains("fortress") && lower_name.contains("opengl")
 }
 
 fn is_high_perf_window(name: &str) -> bool {
