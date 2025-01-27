@@ -140,11 +140,13 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
 
     }
 
-    dump_error!(
-      std::process::Command::new("sudo")
-        .args(&["-n", "modprobe", "i2c-dev"])
-        .status()
-    );
+    if !std::path::Path::new("/sys/kernel/btf/i2c_dev").exists() {
+      dump_error!(
+        std::process::Command::new("sudo")
+          .args(&["-n", "modprobe", "i2c-dev"])
+          .status()
+      );
+    }
 
     // if let Some(wanted_ddcutil_brightness_val) = wanted_ddcutil_brightness_val {
     //   clear_notifications_sync();
