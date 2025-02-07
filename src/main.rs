@@ -560,8 +560,8 @@ static CURRENTLY_PLAYING_AUDIO: once_cell::sync::Lazy<std::sync::atomic::AtomicB
 
 // From   pactl list | grep -i monitor
 const PULSE_AUDIO_MONITOR_DEVICE_NAMES:  &'static [&'static str] = &[
-  "alsa_output.usb-Generic_USB_Audio-00.analog-stereo", // desk headphones
-  "alsa_output.pci-0000_00_1f.3.3.analog-stereo.monitor", // laptop speakers
+  "alsa_output.usb-Generic_USB_Audio_201701110001-00.analog-stereo.monitor", // desk headphones
+  "alsa_output.pci-0000_00_1f.3.analog-stereo", // laptop speakers
 ];
 
 async fn poll_device_audio_playback() {
@@ -603,7 +603,7 @@ async fn poll_device_audio_playback() {
       20.0 * (r / (u8::MAX as f64)).log10()
   }
 
-  let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(2400));
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(3200));
   interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
   let mut powersave_interval = tokio::time::interval(tokio::time::Duration::from_millis(12200));
   powersave_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
