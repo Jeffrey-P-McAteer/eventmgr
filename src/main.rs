@@ -545,7 +545,7 @@ async fn set_kbd_light(level: u32) {
   if let Ok(led_devices) = bulbb::misc::LedDevice::get_all_led_devices() {
     for ld in led_devices {
       if let Some(bulbb::misc::LedFunction::KbdBacklight) = ld.info.function {
-        dump_error!( ld.set_brightness(level) );
+        dump_error_and_cont!( ld.set_brightness(level) );
       }
     }
   }
