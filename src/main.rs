@@ -2273,7 +2273,10 @@ async fn turn_off_misc_lights() {
 }
 
 async fn update_dns_records() {
-  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(128));
+  // /j/bins/update-dns.py only performs network I/O if the IP values have changed
+  // since last run, so we can run this more often to get better time granularity w/o
+  // thrashing our DNS provider
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(62));
   interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
   loop {
