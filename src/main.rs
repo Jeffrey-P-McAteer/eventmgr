@@ -60,6 +60,7 @@ async fn eventmgr() {
     PersistentAsyncTask::new("mount_swap_files",                 ||{ tokio::task::spawn(mount_swap_files()) }),
     PersistentAsyncTask::new("turn_off_misc_lights",             ||{ tokio::task::spawn(turn_off_misc_lights()) }),
     PersistentAsyncTask::new("update_dns_records",               ||{ tokio::task::spawn(update_dns_records()) }),
+    PersistentAsyncTask::new("run_disregarded_pvms",             ||{ tokio::task::spawn(run_disregarded_pvms()) }),
   ];
 
   // Initialize any early-memory stuff
@@ -2284,6 +2285,22 @@ async fn update_dns_records() {
 
     dump_error_and_ret!(
       tokio::process::Command::new("/j/bin/update-dns")
+        .status()
+        .await
+    );
+
+  }
+}
+
+async fn run_disregarded_pvms() {
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(300));
+  interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
+  loop {
+    interval.tick().await;
+
+    dump_error_and_ret!(
+      tokio::process::Command::new("/j/bins/windows-vm-bg-runner.sh")
         .status()
         .await
     );
