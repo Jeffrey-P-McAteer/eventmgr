@@ -297,6 +297,14 @@ async fn handle_sway_msgs() {
               on_window_focus(&name, &window_evt_container).await;
             });
           }
+          else if window_evt.change == swayipc_async::WindowChange::Close {
+            // Some of our scripts store per-window meta-data under /tmp/.twin/<window-id> - if that file exists AND this window ID is closed,
+            // delete that data.
+            let window_id_path = std::path::PathBuf::from(format!("/tmp/.twin/{}", window_evt.container.id));
+            if window_id_path.exists() {
+              dump_error!( std::fs::remove_file(&window_id_path) );
+            }
+          }
         }
         swayipc_async::Event::Workspace(workspace_evt) => {
           if workspace_evt.change == swayipc_async::WorkspaceChange::Focus {
