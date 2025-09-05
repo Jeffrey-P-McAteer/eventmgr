@@ -363,7 +363,7 @@ async fn set_sway_wallpaper<T: AsRef<str>>(wallpaper: T) {
   swww_args.push("--transition-step".into());
   swww_args.push("2".into());
   swww_args.push("--transition-fps".into());
-  swww_args.push("42".into());
+  swww_args.push("18".into());
 
   /*let rand_num = fastrand::usize(0..100);
   if rand_num < 20 {
