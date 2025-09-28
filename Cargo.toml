@@ -10,10 +10,7 @@ ciborium = "0.2"
 phf = {version = "0.11", features = ["default", "macros"] }
 once_cell = "1.17"
 
-#mountinfo = "0.2"
-mountinfo = { git = "https://github.com/robinkrahl/mountinfo.git" }
-# ^^ Fork contains patch to only compile regexes once, MUCH better performance!
-
+sysinfo = { version = "0.37", features = ["linux-tmpfs", "linux-netdevs"] }
 swayipc-async = "2.0"
 async-walkdir = "0.2"
 procfs = "0.15"
