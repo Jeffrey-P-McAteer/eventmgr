@@ -2339,15 +2339,19 @@ async fn log_runtime_stats() {
         {
           writeln!(f, "=== totals @ {:?} ===", std::time::Instant::now()).unwrap();
           let mut names_in_order_duration: Vec<String> = vec![];
+          let mut longest_name_chars = 0;
           for (name, dur) in agg.iter() {
             names_in_order_duration.push(name.to_string());
+            if name.len() > longest_name_chars {
+              longest_name_chars = name.len();
+            }
           }
 
           names_in_order_duration.sort_by_key(|k| agg.get(k.as_str()) );
 
           for name in names_in_order_duration.iter() {
             if let Some(dur) = agg.get(name.as_str()) {
-              writeln!(f, "{}: {:?}", name, dur).unwrap();
+              writeln!(f, "{:─^width$}  {:?}", name, dur, width = longest_name_chars).unwrap();
             }
           }
 
