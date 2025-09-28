@@ -2327,20 +2327,29 @@ async fn run_disregarded_pvms() {
 }
 
 async fn log_runtime_stats() {
+    const RUNTIME_STATS_FILE: &'static str = "/tmp/eventmgr-runtime-stats";
+
+    use tokio::fs::OpenOptions;
+    use tokio::io::AsyncWriteExt;
     use std::io::Write;
-    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
+
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(36));
     interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
     loop {
       interval.tick().await;
 
-      if let Ok(agg) = AGG.lock() {
-        if let Ok(mut f) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(false)
-            .open("/tmp/eventmgr-log")
-        {
-          // writeln!(f, "=== totals @ {:?} ===", std::time::Instant::now()).unwrap();
+      if let Ok(mut f) = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(RUNTIME_STATS_FILE)
+        .await
+      {
+
+        let mut buf = Vec::<u8>::new();
+
+        if let Ok(agg) = AGG.lock() { // NB: Cannot hold agg across .await points.
           let mut names_in_order_duration: Vec<String> = vec![];
           let mut longest_name_chars = 0;
           for (name, dur) in agg.iter() {
@@ -2354,12 +2363,14 @@ async fn log_runtime_stats() {
 
           for name in names_in_order_duration.iter() {
             if let Some(dur) = agg.get(name.as_str()) {
-              writeln!(f, "{: <width$}  {:?}", name, dur, width = longest_name_chars).unwrap();
+              writeln!(buf, "{: <width$}  {:?}", name, dur, width = longest_name_chars).unwrap();
             }
           }
-
-          println!("Logged CPU times to /tmp/eventmgr-log");
         }
+
+        dump_error!( f.write_all(&buf).await );
+
+        println!("Logged CPU times to {}", RUNTIME_STATS_FILE);
       }
 
 
