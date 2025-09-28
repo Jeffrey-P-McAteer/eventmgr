@@ -1662,8 +1662,6 @@ async fn bump_cpu_for_performance_procs() {
       interval.tick().await;
     }
 
-    //print_time!("bump_cpu_for_performance_procs loop"); // recorded approx 8ms, this is not a significant performance hog
-
     tick_count += 1;
     if tick_count > 10000000 {
       tick_count = 0;
@@ -2295,7 +2293,7 @@ async fn update_dns_records() {
   // /j/bins/update-dns.py only performs network I/O if the IP values have changed
   // since last run, so we can run this more often to get better time granularity w/o
   // thrashing our DNS provider
-  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(62));
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(180));
   interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
   loop {
