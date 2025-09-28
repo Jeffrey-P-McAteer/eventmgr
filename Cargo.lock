@@ -1082,8 +1082,7 @@ dependencies = [
 [[package]]
 name = "mountinfo"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6341a1c48d5425a185c43f75480227dc738cf85ecc6a4bc8ca847406d44f1c17"
+source = "git+https://github.com/robinkrahl/mountinfo.git#af15fa54400f69fe80136c7d5da9f72176682233"
 dependencies = [
  "regex",
 ]
