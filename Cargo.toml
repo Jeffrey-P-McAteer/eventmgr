@@ -11,7 +11,7 @@ phf = {version = "0.11", features = ["default", "macros"] }
 once_cell = "1.17"
 
 #mountinfo = "0.2"
-mountinfo = { git = "https://github.com/robinkrahl/mountinfo.git" }
+mountinfo = { git = "https://github.com/Jeffrey-P-McAteer/mountinfo.git" }
 # ^^ Fork contains patch to only compile regexes once, MUCH better performance!
 
 swayipc-async = "2.0"

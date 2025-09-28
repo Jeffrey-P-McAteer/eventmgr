@@ -1082,8 +1082,9 @@ dependencies = [
 [[package]]
 name = "mountinfo"
 version = "0.2.0"
-source = "git+https://github.com/robinkrahl/mountinfo.git#af15fa54400f69fe80136c7d5da9f72176682233"
+source = "git+https://github.com/Jeffrey-P-McAteer/mountinfo.git#26181d44548ded1bbc2aa237121d16bd4943d786"
 dependencies = [
+ "lazy_static",
  "regex",
 ]
 
