@@ -41,26 +41,33 @@ fn main() {
 // consume significant CPU by ticking less often.
 static IN_POWERSAVE_MODE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+// We record CPU runtime data & print every 60s or so
+lazy_static::lazy_static! {
+    static ref AGG: std::sync::Mutex<std::collections::HashMap<&'static str, std::time::Duration>> =
+        std::sync::Mutex::new(std::collections::HashMap::new());
+}
+
 async fn eventmgr() {
   notify("Beginning eventmgr event loop...").await;
 
   let mut tasks = vec![
-    PersistentAsyncTask::new("handle_exit_signals",              ||{ tokio::task::spawn(handle_exit_signals()) }),
-    PersistentAsyncTask::new("handle_sway_msgs",                 ||{ tokio::task::spawn(handle_sway_msgs()) }),
-    PersistentAsyncTask::new("poll_device_audio_playback",       ||{ tokio::task::spawn(poll_device_audio_playback()) }),
-    PersistentAsyncTask::new("handle_socket_msgs",               ||{ tokio::task::spawn(handle_socket_msgs()) }),
-    PersistentAsyncTask::new("poll_downloads",                   ||{ tokio::task::spawn(poll_downloads()) }),
-    PersistentAsyncTask::new("poll_wallpaper_rotation",          ||{ tokio::task::spawn(poll_wallpaper_rotation()) }),
-    // PersistentAsyncTask::new("poll_check_glucose",               ||{ tokio::task::spawn(poll_check_glucose()) }),
-    PersistentAsyncTask::new("mount_disks",                      ||{ tokio::task::spawn(mount_disks()) }),
-    PersistentAsyncTask::new("mount_net_shares",                 ||{ tokio::task::spawn(mount_net_shares()) }),
-    PersistentAsyncTask::new("bump_cpu_for_performance_procs",   ||{ tokio::task::spawn(bump_cpu_for_performance_procs()) }),
-    PersistentAsyncTask::new("partial_resume_paused_procs",      ||{ tokio::task::spawn(partial_resume_paused_procs()) }),
-    // PersistentAsyncTask::new("bind_mount_azure_data",            ||{ tokio::task::spawn(bind_mount_azure_data()) }),
-    PersistentAsyncTask::new("mount_swap_files",                 ||{ tokio::task::spawn(mount_swap_files()) }),
-    PersistentAsyncTask::new("turn_off_misc_lights",             ||{ tokio::task::spawn(turn_off_misc_lights()) }),
-    PersistentAsyncTask::new("update_dns_records",               ||{ tokio::task::spawn(update_dns_records()) }),
-    PersistentAsyncTask::new("run_disregarded_pvms",             ||{ tokio::task::spawn(run_disregarded_pvms()) }),
+    PersistentAsyncTask::new("handle_exit_signals",              ||{ tokio::task::spawn(instrument_async("handle_exit_signals", handle_exit_signals()) ) }),
+    PersistentAsyncTask::new("handle_sway_msgs",                 ||{ tokio::task::spawn(instrument_async("handle_sway_msgs", handle_sway_msgs()) ) }),
+    PersistentAsyncTask::new("poll_device_audio_playback",       ||{ tokio::task::spawn(instrument_async("poll_device_audio_playback", poll_device_audio_playback()) ) }),
+    PersistentAsyncTask::new("handle_socket_msgs",               ||{ tokio::task::spawn(instrument_async("handle_socket_msgs", handle_socket_msgs()) ) }),
+    PersistentAsyncTask::new("poll_downloads",                   ||{ tokio::task::spawn(instrument_async("poll_downloads", poll_downloads()) ) }),
+    PersistentAsyncTask::new("poll_wallpaper_rotation",          ||{ tokio::task::spawn(instrument_async("poll_wallpaper_rotation", poll_wallpaper_rotation()) ) }),
+    // PersistentAsyncTask::new("poll_check_glucose",               ||{ tokio::task::spawn(instrument_async("poll_check_glucose", poll_check_glucose()) ) }),
+    PersistentAsyncTask::new("mount_disks",                      ||{ tokio::task::spawn(instrument_async("mount_disks", mount_disks()) ) }),
+    PersistentAsyncTask::new("mount_net_shares",                 ||{ tokio::task::spawn(instrument_async("mount_net_shares", mount_net_shares()) ) }),
+    PersistentAsyncTask::new("bump_cpu_for_performance_procs",   ||{ tokio::task::spawn(instrument_async("bump_cpu_for_performance_procs", bump_cpu_for_performance_procs()) ) }),
+    PersistentAsyncTask::new("partial_resume_paused_procs",      ||{ tokio::task::spawn(instrument_async("partial_resume_paused_procs", partial_resume_paused_procs()) ) }),
+    // PersistentAsyncTask::new("bind_mount_azure_data",            ||{ tokio::task::spawn(instrument_async("bind_mount_azure_data", bind_mount_azure_data()) ) }),
+    PersistentAsyncTask::new("mount_swap_files",                 ||{ tokio::task::spawn(instrument_async("mount_swap_files", mount_swap_files()) ) }),
+    PersistentAsyncTask::new("turn_off_misc_lights",             ||{ tokio::task::spawn(instrument_async("turn_off_misc_lights", turn_off_misc_lights()) ) }),
+    PersistentAsyncTask::new("update_dns_records",               ||{ tokio::task::spawn(instrument_async("update_dns_records", update_dns_records()) ) }),
+    PersistentAsyncTask::new("run_disregarded_pvms",             ||{ tokio::task::spawn(instrument_async("run_disregarded_pvms", run_disregarded_pvms()) ) }),
+    PersistentAsyncTask::new("log_runtime_stats",                ||{ tokio::task::spawn(instrument_async("log_runtime_stats", log_runtime_stats()) ) }),
   ];
 
   // Initialize any early-memory stuff
@@ -2316,6 +2323,41 @@ async fn run_disregarded_pvms() {
   }
 }
 
+async fn log_runtime_stats() {
+    use std::io::Write;
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
+    interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
+    loop {
+      interval.tick().await;
+
+      if let Ok(agg) = AGG.lock() {
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("/tmp/eventmgr-log")
+        {
+          writeln!(f, "=== totals @ {:?} ===", std::time::Instant::now()).unwrap();
+          let mut names_in_order_duration: Vec<String> = vec![];
+          for (name, dur) in agg.iter() {
+            names_in_order_duration.push(name.to_string());
+          }
+
+          names_in_order_duration.sort_by_key(|k| agg.get(k.as_str()) );
+
+          for name in names_in_order_duration.iter() {
+            if let Some(dur) = agg.get(name.as_str()) {
+              writeln!(f, "{}: {:?}", name, dur).unwrap();
+            }
+          }
+
+          println!("Logged CPU times to /tmp/eventmgr-log");
+        }
+      }
+
+
+    }
+}
 
 
 
@@ -2381,6 +2423,43 @@ async fn get_cpu() -> &'static str {
   return CPU_GOV_UNK;
 }
 
+
+/// Future wrapper that records CPU time per poll into the global aggregator
+pub struct TimedFuture<F> {
+    name: &'static str,
+    inner: F,
+}
+
+impl<F> Future for TimedFuture<F>
+where
+    F: Future,
+{
+    type Output = F::Output;
+
+    fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        let start = cpu_time::ThreadTime::now();
+
+        //let res = unsafe { std::pin::Pin::new_unchecked(&mut self.inner) }.poll(cx);
+        let this = unsafe { self.as_mut().map_unchecked_mut(|s| &mut s.inner) };
+        let res = this.poll(cx);
+
+        let elapsed = start.elapsed();
+
+        // Accumulate per-function CPU time into AGG
+        let mut agg = AGG.lock().unwrap();
+        *agg.entry(self.name).or_default() += elapsed;
+
+        res
+    }
+}
+
+/// Helper function to wrap an async future with instrumentation
+pub fn instrument_async<F>(name: &'static str, f: F) -> TimedFuture<F>
+where
+    F: Future,
+{
+    TimedFuture { name, inner: f }
+}
 
 
 
