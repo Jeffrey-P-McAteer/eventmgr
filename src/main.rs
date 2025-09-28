@@ -1651,7 +1651,7 @@ async fn bump_cpu_for_performance_procs() {
   let mut powersave_interval = tokio::time::interval(tokio::time::Duration::from_millis(5200));
   powersave_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
-  let mut not_high_perf_pids = std::collections::HashSet::<i32>::with_capacity(2000);
+  let mut not_high_perf_pids = std::collections::HashSet::<i32>::with_capacity(4096);
   let mut have_high_cpu = false;
   let mut tick_count = 0;
   loop {
@@ -1712,8 +1712,8 @@ async fn bump_cpu_for_performance_procs() {
     HAVE_HIGH_PERF_BG_PROC.store(want_high_cpu, std::sync::atomic::Ordering::SeqCst);
 
     if want_high_cpu && !have_high_cpu {
-      //make_cpu_governor_decisions(Some(CPU_GOV_PERFORMANCE), None).await;
-      make_cpu_governor_decisions(None, None).await;
+      make_cpu_governor_decisions(Some(CPU_GOV_PERFORMANCE), None).await;
+      //make_cpu_governor_decisions(None, None).await;
       have_high_cpu = true;
     }
     else if !want_high_cpu && have_high_cpu {
