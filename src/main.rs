@@ -2325,7 +2325,7 @@ async fn run_disregarded_pvms() {
 
 async fn log_runtime_stats() {
     use std::io::Write;
-    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
     interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
     loop {
@@ -2334,10 +2334,10 @@ async fn log_runtime_stats() {
       if let Ok(agg) = AGG.lock() {
         if let Ok(mut f) = std::fs::OpenOptions::new()
             .create(true)
-            .append(true)
+            .append(false)
             .open("/tmp/eventmgr-log")
         {
-          writeln!(f, "=== totals @ {:?} ===", std::time::Instant::now()).unwrap();
+          // writeln!(f, "=== totals @ {:?} ===", std::time::Instant::now()).unwrap();
           let mut names_in_order_duration: Vec<String> = vec![];
           let mut longest_name_chars = 0;
           for (name, dur) in agg.iter() {
