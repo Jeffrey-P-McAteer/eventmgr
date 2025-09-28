@@ -2351,7 +2351,7 @@ async fn log_runtime_stats() {
 
           for name in names_in_order_duration.iter() {
             if let Some(dur) = agg.get(name.as_str()) {
-              writeln!(f, "{:─^width$}  {:?}", name, dur, width = longest_name_chars).unwrap();
+              writeln!(f, "{: ^width$}  {:?}", name, dur, width = longest_name_chars).unwrap();
             }
           }
 
