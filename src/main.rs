@@ -1649,9 +1649,9 @@ static HAVE_HIGH_PERF_BG_PROC: once_cell::sync::Lazy<std::sync::atomic::AtomicBo
 );
 
 async fn bump_cpu_for_performance_procs() {
-  let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(1800));
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(4400));
   interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
-  let mut powersave_interval = tokio::time::interval(tokio::time::Duration::from_millis(5200));
+  let mut powersave_interval = tokio::time::interval(tokio::time::Duration::from_millis(9000));
   powersave_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
   let mut not_high_perf_pids = std::collections::HashSet::<i32>::with_capacity(4096);
