@@ -2280,12 +2280,21 @@ async fn turn_off_misc_lights() {
 
     for file_to_write_0_to in files_to_write_0_to.iter() {
       if std::path::Path::new(file_to_write_0_to).exists() {
-        dump_error_and_ret!(
-          tokio::process::Command::new("sudo")
-            .args(&["-n", "sh", "-c", format!("echo 0 > {}", file_to_write_0_to).as_str(), ])
-            .status()
-            .await
-        );
+        // If the current value is not 0, write 0 to the file
+        let mut write_0_needed = true;
+        if let Ok(contents) = tokio::fs::read_to_string(file_to_write_0_to).await {
+          if contents.starts_with("0") {
+            write_0_needed = false;
+          }
+        }
+        if write_0_needed {
+          dump_error_and_ret!(
+            tokio::process::Command::new("sudo")
+              .args(&["-n", "sh", "-c", format!("echo 0 > {}", file_to_write_0_to).as_str(), ])
+              .status()
+              .await
+          );
+        }
       }
     }
 
