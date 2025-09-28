@@ -27,3 +27,47 @@ impl PersistentAsyncTask {
   }
 
 }
+
+
+use crate::AGG;
+use futures::prelude::*;
+
+/// Future wrapper that records CPU time per poll into the global aggregator
+pub struct TimedFuture<F> {
+    name: &'static str,
+    inner: F,
+}
+
+impl<F> Future for TimedFuture<F>
+where
+    F: Future,
+{
+    type Output = F::Output;
+
+    fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        let start = cpu_time::ThreadTime::now();
+
+        //let res = unsafe { std::pin::Pin::new_unchecked(&mut self.inner) }.poll(cx);
+        let this = unsafe { self.as_mut().map_unchecked_mut(|s| &mut s.inner) };
+        let res = this.poll(cx);
+
+        let elapsed = start.elapsed();
+
+        // Accumulate per-function CPU time into AGG
+        let mut agg = AGG.lock().unwrap();
+        *agg.entry(self.name).or_default() += elapsed;
+
+        res
+    }
+}
+
+/// Helper function to wrap an async future with instrumentation
+pub fn instrument_async<F>(name: &'static str, f: F) -> TimedFuture<F>
+where
+    F: Future,
+{
+    TimedFuture { name, inner: f }
+}
+
+
+
