@@ -1631,12 +1631,15 @@ async fn mount_net_shares() {
   }
 }
 
+static WANT_HIGH_CPU_STRING: once_cell::sync::Lazy<std::ffi::OsString> = once_cell::sync::Lazy::new(||
+  std::ffi::OsStr::new("WANT_HIGH_CPU").into()
+);
 
 // This allows me to launch any process like "WANT_HIGH_CPU=t python some_script.py" and
 // so long as that copy of python is running, bump_cpu_for_performance_procs will bump the CPU.
 fn process_has_high_cpu_environ_set(p: &procfs::process::Process) -> bool {
   if let Ok(p_env) = p.environ() {
-    return p_env.contains_key(std::ffi::OsStr::new("WANT_HIGH_CPU"));
+    return p_env.contains_key(WANT_HIGH_CPU_STRING.as_os_str());
   }
   return false;
 }
