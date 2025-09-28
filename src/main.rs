@@ -71,6 +71,7 @@ async fn eventmgr() {
     PersistentAsyncTask::new("update_dns_records",               ||{ tokio::task::spawn(instrument_async("update_dns_records", update_dns_records()) ) }),
     PersistentAsyncTask::new("run_disregarded_pvms",             ||{ tokio::task::spawn(instrument_async("run_disregarded_pvms", run_disregarded_pvms()) ) }),
     PersistentAsyncTask::new("log_runtime_stats",                ||{ tokio::task::spawn(instrument_async("log_runtime_stats", log_runtime_stats()) ) }),
+    PersistentAsyncTask::new("handle_lid_states",                ||{ tokio::task::spawn(instrument_async("handle_lid_states", handle_lid_states()) ) }),
   ];
 
   // Initialize any early-memory stuff
@@ -2385,6 +2386,69 @@ async fn log_runtime_stats() {
 
 
     }
+}
+
+async fn handle_lid_states() {
+
+  const ACPI_PATH: &'static str = "/proc/acpi/button/lid/LID/state";
+
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(2));
+  interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
+  let acpi_path = std::path::PathBuf::from(ACPI_PATH);
+
+  if ! acpi_path.exists() {
+    println!("Fatal error in handle_lid_states: {} does not exist!", ACPI_PATH);
+    tokio::time::sleep( tokio::time::Duration::from_millis(500) ).await;
+    return;
+  }
+
+  let mut lid_was_closed = false;
+
+  loop {
+    interval.tick().await;
+    if util::is_lid_closed(ACPI_PATH).await {
+      if ! lid_was_closed {
+        // Do on-lid-close tasks
+        on_lid_close().await;
+      }
+      lid_was_closed = true;
+    }
+    else {
+      if lid_was_closed {
+        on_lid_open().await;
+      }
+      lid_was_closed = false;
+    }
+  }
+}
+
+async fn on_lid_close() {
+  tokio::task::spawn(
+    util::blink_lid_thinkpad_led(&[
+      true, true, false,
+      true, true, false,
+      true, true, false,
+      true, true, false,
+      true, true, false,
+      true, true, false,
+      true, true, false,
+    ])
+  );
+
+}
+
+async fn on_lid_open() {
+  tokio::task::spawn(
+    util::blink_power_thinkpad_led(&[
+      true, false, false, false,
+      true, false, false, false,
+      true, false, false, false,
+      true, false, false, false,
+      true, false, false, false,
+    ])
+  );
+
 }
 
 

@@ -1,5 +1,4 @@
 
-
 pub struct PersistentAsyncTask {
   pub name: String,
   pub spawn_fn: Box<dyn FnMut() -> tokio::task::JoinHandle<()> + Send>,

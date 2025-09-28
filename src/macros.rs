@@ -11,6 +11,14 @@ macro_rules! dump_error {
 
 #[allow(unused_macros)]
 #[macro_export]
+macro_rules! dump_any {
+  ($e:expr) => {
+    eprintln!("ERROR {}:{}> {:?}",  file!(), line!(), $e);
+  }
+}
+
+#[allow(unused_macros)]
+#[macro_export]
 macro_rules! dump_error_async {
   ($e:expr) => {
     async {

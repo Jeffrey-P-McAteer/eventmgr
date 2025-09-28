@@ -1,4 +1,6 @@
 
+use crate::macros::*;
+
 pub async fn get_mount_pt_of(info: &mountinfo::MountInfo, device_path: &str) -> Option<std::path::PathBuf> {
   if let Ok(device_path) = tokio::fs::canonicalize(device_path).await {
     for mount_pt in &info.mounting_points {
@@ -57,4 +59,72 @@ pub async fn get_cpu() -> &'static str {
     }
   }
   return CPU_GOV_UNK;
+}
+
+pub async fn is_lid_closed(acpi_path: &str) -> bool {
+
+  match tokio::fs::read_to_string(acpi_path).await {
+    Ok(contents) => {
+      let lower_contents = contents.to_lowercase();
+      // Typical content: "state:      open" or "state:      closed"
+      if lower_contents.contains("closed") {
+          return true;
+      }
+      else if lower_contents.contains("open") {
+          return false;
+      }
+      else {
+        dump_any!(format!("Un-handled file contents: {} were '{}'", acpi_path, contents));
+      }
+    }
+    Err(e) => {
+      dump_any!(e);
+    }
+  }
+  return false;
+}
+
+pub async fn blink_lid_thinkpad_led(pattern: &[bool]) {
+  for go_on in pattern {
+    if *go_on {
+      set_lid_thinkpad_led("1").await;
+    }
+    else {
+      set_lid_thinkpad_led("0").await;
+    }
+    tokio::time::sleep( tokio::time::Duration::from_millis(100) ).await;
+  }
+}
+
+pub async fn set_lid_thinkpad_led(content: &str) {
+  const CONTROL_FILE: &'static str = "/sys/devices/platform/thinkpad_acpi/leds/tpacpi::lid_logo_dot/brightness";
+  dump_error_and_ret!(
+    tokio::process::Command::new("sudo")
+      .args(&["-n", "sh", "-c", format!("echo '{}' > {}", content, CONTROL_FILE).as_str(), ])
+      .status()
+      .await
+  );
+}
+
+
+pub async fn blink_power_thinkpad_led(pattern: &[bool]) {
+  for go_on in pattern {
+    if *go_on {
+      set_power_thinkpad_led("1").await;
+    }
+    else {
+      set_power_thinkpad_led("0").await;
+    }
+    tokio::time::sleep( tokio::time::Duration::from_millis(100) ).await;
+  }
+}
+
+pub async fn set_power_thinkpad_led(content: &str) {
+  const CONTROL_FILE: &'static str = "/sys/devices/platform/thinkpad_acpi/leds/tpacpi::power/brightness";
+  dump_error_and_ret!(
+    tokio::process::Command::new("sudo")
+      .args(&["-n", "sh", "-c", format!("echo '{}' > {}", content, CONTROL_FILE).as_str(), ])
+      .status()
+      .await
+  );
 }
