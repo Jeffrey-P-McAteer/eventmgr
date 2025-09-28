@@ -44,6 +44,8 @@ fn main() {
 // consume significant CPU by ticking less often.
 static IN_POWERSAVE_MODE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+static LID_IS_CLOSED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 // We record CPU runtime data & print every 60s or so
 lazy_static::lazy_static! {
     static ref AGG: std::sync::Mutex<std::collections::HashMap<&'static str, std::time::Duration>> =
@@ -65,7 +67,6 @@ async fn eventmgr() {
     PersistentAsyncTask::new("mount_net_shares",                 ||{ tokio::task::spawn(instrument_async("mount_net_shares", mount_net_shares()) ) }),
     PersistentAsyncTask::new("bump_cpu_for_performance_procs",   ||{ tokio::task::spawn(instrument_async("bump_cpu_for_performance_procs", bump_cpu_for_performance_procs()) ) }),
     PersistentAsyncTask::new("partial_resume_paused_procs",      ||{ tokio::task::spawn(instrument_async("partial_resume_paused_procs", partial_resume_paused_procs()) ) }),
-    // PersistentAsyncTask::new("bind_mount_azure_data",            ||{ tokio::task::spawn(instrument_async("bind_mount_azure_data", bind_mount_azure_data()) ) }),
     PersistentAsyncTask::new("mount_swap_files",                 ||{ tokio::task::spawn(instrument_async("mount_swap_files", mount_swap_files()) ) }),
     PersistentAsyncTask::new("turn_off_misc_lights",             ||{ tokio::task::spawn(instrument_async("turn_off_misc_lights", turn_off_misc_lights()) ) }),
     PersistentAsyncTask::new("update_dns_records",               ||{ tokio::task::spawn(instrument_async("update_dns_records", update_dns_records()) ) }),
@@ -987,6 +988,10 @@ async fn poll_wallpaper_rotation() {
 
   loop {
 
+    while LID_IS_CLOSED.load(std::sync::atomic::Ordering::Relaxed) {
+      small_powersave_interval.tick().await; // Do nothing if LID_IS_CLOSED
+    }
+
     if IN_POWERSAVE_MODE.load(std::sync::atomic::Ordering::Relaxed) {
       for _ in 0..18 {
         small_powersave_interval.tick().await;
@@ -1067,189 +1072,6 @@ async fn poll_check_glucose() {
 
   }
 }
-
-
-
-
-async fn bind_mount_azure_data() {
-  let azure_data_block_dev = std::path::Path::new("/dev/disk/by-partuuid/8f3ca68c-d031-2d41-849c-be5d9602e920");
-  let azure_data_mount = std::path::Path::new("/mnt/azure-data");
-  let tmp_data_mount = std::path::Path::new("/tmp");
-
-  let data_mount_points = &[
-    // root FS path, relative to azure_data_mount path
-    ("/var/cache/pacman/pkg",     "azure_sys/var_cache_pacman_pkg"),
-    ("/j/.cache/mozilla/firefox", "azure_sys/j_.cache_mozilla_firefox"), // The only folder in here should be jeff_2023, corresponding to the PROFILE under .mozilla which must never be removed.
-    ("/j/downloads",              "azure_sys/j_downloads"),
-
-    // rsync -av /j/proj/llm-experiments/ai_models/ /mnt/azure-data/azure_sys/llm_experiments_ai_models # To pre-populate
-    //("/j/proj/llm-experiments/ai_models",              "azure_sys/llm_experiments_ai_models"),
-
-  ];
-
-  let build_dir_scan_folders = &[
-    "/j/proj", // TODO
-  ];
-
-  // n == neither, d == data mounted, t == tmpfs mounted
-  let mut data_mount_points_mounted = 'n';
-
-  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(12));
-  interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
-  let mut powersave_interval = tokio::time::interval(tokio::time::Duration::from_secs(22));
-  powersave_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
-
-  let mut mount_info: mountinfo::MountInfo;
-
-  loop {
-    // wait at least one tick so we can fail early below w/o a hugely infinite loop
-    if IN_POWERSAVE_MODE.load(std::sync::atomic::Ordering::Relaxed) {
-      powersave_interval.tick().await;
-    }
-    else {
-      interval.tick().await;
-    }
-
-    if let Ok(info) = mountinfo::MountInfo::new() {
-      if azure_data_block_dev.exists() && is_mounted(&info, &azure_data_mount.to_string_lossy() ).await {
-        mount_info = info;
-        break;
-      }
-    }
-  }
-
-  // Ensure ownership of azure_data_mount
-  dump_error_and_ret!(
-    tokio::process::Command::new("sudo")
-      .args(&["-n", "chown", "jeffrey", &azure_data_mount.to_string_lossy() ])
-      .status()
-      .await
-  );
-
-  // Firstly; iterate all system directories and delete child contents
-  for (root_fs_dir, data_mnt_path) in data_mount_points.iter() {
-    // If root_fs_dir is mounted, unmount it.
-    if is_mounted(&mount_info, root_fs_dir).await {
-      dump_error_and_ret!(
-        tokio::process::Command::new("sudo")
-          .args(&["-n", "umount", root_fs_dir])
-          .status()
-          .await
-      );
-    }
-
-    tokio::time::sleep(tokio::time::Duration::from_millis(110)).await;
-
-    // Also create data_mnt_path if ! exists
-    let data_mnt_path = azure_data_mount.join(data_mnt_path);
-    if ! data_mnt_path.exists() {
-      // Create it!
-      dump_error_and_ret!(
-        tokio::fs::create_dir_all(&data_mnt_path).await
-      );
-    }
-
-    // Now is it mounted?
-    if is_mounted(&mount_info, root_fs_dir).await {
-      continue; // Do not rm -rf files if they are mounted, just ignore for now.
-    }
-
-    // After un-mounting, delete everything! This is a cache folder!
-    let mut root_fs_dir_o = dump_error_and_ret!( tokio::fs::read_dir(root_fs_dir).await );
-    while let Some(child) = dump_error_and_ret!( root_fs_dir_o.next_entry().await ) {
-      if child.file_name() == "." || child.file_name() == ".." { // Jeff this doesn't happen and you know it -_-
-        continue;
-      }
-      // Remove it!
-      if child.path().is_dir() {
-        dump_error!( std::fs::remove_dir_all( child.path() ) );
-      }
-      else {
-        dump_error!( std::fs::remove_file( child.path() ) );
-      }
-    }
-
-  }
-
-  loop {
-    interval.tick().await;
-
-    if let Ok(info) = mountinfo::MountInfo::new() {
-      mount_info = info; // Update what we know
-    }
-
-    // If the block device exists & we have not mounted to it, do that.
-    if azure_data_block_dev.exists() && azure_data_mount.exists() && data_mount_points_mounted != 'd' {
-      // bind-mount all folders in data_mount_points
-      for (root_fs_dir, data_mnt_path) in data_mount_points.iter() {
-        let data_mnt_path = azure_data_mount.join(data_mnt_path);
-        if is_mounted(&mount_info, root_fs_dir).await {
-          dump_error_and_cont!(
-            tokio::process::Command::new("sudo")
-              .args(&["-n", "umount", root_fs_dir])
-              .status()
-              .await
-          );
-          tokio::time::sleep(tokio::time::Duration::from_millis(110)).await;
-        }
-        if is_mounted(&mount_info, root_fs_dir).await {
-          continue;
-        }
-        dump_error!(
-          tokio::process::Command::new("sudo")
-            .args(&["-n", "mount", "--bind", &data_mnt_path.to_string_lossy(), root_fs_dir ])
-            .status()
-            .await
-        );
-      }
-
-      data_mount_points_mounted = 'd';
-      notify(format!("Mounted {} system caches to azure-data", data_mount_points.len() ).as_str()).await;
-    }
-    else if azure_data_block_dev.exists() && !azure_data_mount.exists() {
-      // We are waiting for other future to mount disk, do nothing.
-    }
-    else if !azure_data_block_dev.exists() && data_mount_points_mounted != 't' {
-      // Disk was unplugged! Un-mount the bind mounts and replace w/ tmpfs mounts
-      for (root_fs_dir, _data_mnt_path) in data_mount_points.iter() {
-        dump_error!(
-          tokio::process::Command::new("sudo")
-            .args(&["-n", "umount", root_fs_dir])
-            .status()
-            .await
-        );
-      }
-
-      // Bind-mount our /tmp/ to the folders to avoid data falling on to the root FS
-      for (root_fs_dir, data_mnt_path) in data_mount_points.iter() {
-        if is_mounted(&mount_info, root_fs_dir).await {
-          dump_error_and_cont!(
-            tokio::process::Command::new("sudo")
-              .args(&["-n", "umount", root_fs_dir])
-              .status()
-              .await
-          );
-          tokio::time::sleep(tokio::time::Duration::from_millis(110)).await;
-        }
-        if is_mounted(&mount_info, root_fs_dir).await {
-          continue;
-        }
-        let data_mnt_path = tmp_data_mount.join(data_mnt_path);
-        dump_error!(
-          tokio::process::Command::new("sudo")
-            .args(&["-n", "mount", "--bind", &data_mnt_path.to_string_lossy(), root_fs_dir  ])
-            .status()
-            .await
-        );
-      }
-
-      data_mount_points_mounted = 't';
-      notify(format!("Mounted {} system caches to TMPFS", data_mount_points.len() ).as_str()).await;
-    }
-
-  }
-}
-
 
 
 static MOUNT_DISKS: phf::Map<&'static str, &[(&'static str, &'static str)] > = phf::phf_map! {
@@ -1491,6 +1313,11 @@ async fn mount_net_shares() {
   let mut host_missed_pings: std::collections::HashMap::<&'static str, usize> = std::collections::HashMap::<&'static str, usize>::new();
 
   loop {
+
+    while LID_IS_CLOSED.load(std::sync::atomic::Ordering::Relaxed) {
+      powersave_interval.tick().await; // Do nothing if LID_IS_CLOSED
+    }
+
     if IN_POWERSAVE_MODE.load(std::sync::atomic::Ordering::Relaxed) {
       powersave_interval.tick().await;
     }
@@ -1664,6 +1491,11 @@ async fn bump_cpu_for_performance_procs() {
     }
     else {
       interval.tick().await;
+    }
+
+    let lid_is_closed = LID_IS_CLOSED.load(std::sync::atomic::Ordering::Relaxed);
+    if lid_is_closed {
+      continue; // Do not change CPU if lid closed!
     }
 
     tick_count += 1;
@@ -2127,9 +1959,9 @@ async fn partial_resume_paused_procs() {
 
 
 async fn mount_swap_files() {
-  let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(4400));
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(6800));
   interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
-  let mut powersave_interval = tokio::time::interval(tokio::time::Duration::from_millis(9600));
+  let mut powersave_interval = tokio::time::interval(tokio::time::Duration::from_millis(18600));
   powersave_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
   interval.tick().await;
@@ -2312,6 +2144,10 @@ async fn update_dns_records() {
   loop {
     interval.tick().await;
 
+    if LID_IS_CLOSED.load(std::sync::atomic::Ordering::Relaxed) {
+      continue; // No network ops when lid closed!
+    }
+
     dump_error_and_ret!(
       tokio::process::Command::new("/j/bin/update-dns")
         .status()
@@ -2327,6 +2163,10 @@ async fn run_disregarded_pvms() {
 
   loop {
     interval.tick().await;
+
+    if LID_IS_CLOSED.load(std::sync::atomic::Ordering::Relaxed) {
+      continue; // No VM ops when lid closed!
+    }
 
     dump_error_and_ret!(
       tokio::process::Command::new("/j/bins/windows-vm-bg-runner.sh")
@@ -2344,7 +2184,7 @@ async fn log_runtime_stats() {
     use tokio::io::AsyncWriteExt;
     use std::io::Write;
 
-    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(36));
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(48));
     interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
     loop {
@@ -2424,6 +2264,7 @@ async fn handle_lid_states() {
 }
 
 async fn on_lid_close() {
+  LID_IS_CLOSED.store(false, std::sync::atomic::Ordering::SeqCst);
   tokio::task::spawn(
     util::blink_lid_thinkpad_led(&[
       true, true, false,
@@ -2435,10 +2276,11 @@ async fn on_lid_close() {
       true, true, false,
     ])
   );
-
+  make_cpu_governor_decisions(Some(CPU_GOV_POWERSAVE), None).await;
 }
 
 async fn on_lid_open() {
+  LID_IS_CLOSED.store(false, std::sync::atomic::Ordering::SeqCst);
   tokio::task::spawn(
     util::blink_power_thinkpad_led(&[
       true, false, false, false,
@@ -2448,7 +2290,6 @@ async fn on_lid_open() {
       true, false, false, false,
     ])
   );
-
 }
 
 
