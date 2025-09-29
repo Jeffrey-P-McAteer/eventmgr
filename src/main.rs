@@ -2228,6 +2228,10 @@ async fn log_runtime_stats() {
     }
 }
 
+
+pub const PERIODIC_RTC_WAKE_SECONDS: u64 = 25 * 60; // 25 minute wakeup, poll things, then back to sleep.
+//pub const PERIODIC_RTC_WAKE_SECONDS: u64 = 25;
+
 async fn handle_lid_states() {
 
   const ACPI_PATH: &'static str = "/proc/acpi/button/lid/LID/state";
@@ -2293,13 +2297,42 @@ async fn on_lid_close() {
       .status()
       .await
   );
+
+  go_to_sleep_with_wakeup_after(PERIODIC_RTC_WAKE_SECONDS).await;
+
+}
+
+async fn go_to_sleep_with_wakeup_after(s: u64) {
+  // Schedule a system wake up s from now
+  tokio::time::sleep( tokio::time::Duration::from_millis(50) ).await; // delay makes RTC timer more reliable!
+  let wakeup_time = std::time::SystemTime::now() + tokio::time::Duration::from_secs(s);
+  let wakeup_ts = wakeup_time
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("Time went backwards")
+        .as_secs();
+
+  util::write_to_sysfs_file("/sys/class/rtc/rtc0/wakealarm", "0").await;
+  tokio::time::sleep( tokio::time::Duration::from_millis(50) ).await; // delay makes RTC timer more reliable!
+  util::write_to_sysfs_file("/sys/class/rtc/rtc0/wakealarm", format!("{}", wakeup_ts).as_str()).await;
+
+  tokio::time::sleep( tokio::time::Duration::from_millis(350) ).await;
+
+  // Go to RAM sleep
+  util::write_to_sysfs_file("/sys/power/state", "mem").await;
 }
 
 async fn periodic_while_lid_closed() {
+  // Tell user we're alive
   util::blink_lid_thinkpad_led(&[
     true, true, false,
     true, true, false,
   ]).await;
+
+  // Any checks to do?
+
+
+  // Go back to sleep
+  go_to_sleep_with_wakeup_after(PERIODIC_RTC_WAKE_SECONDS).await;
 }
 
 async fn on_lid_open() {
