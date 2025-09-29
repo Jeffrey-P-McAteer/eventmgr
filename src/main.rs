@@ -2287,7 +2287,12 @@ async fn on_lid_close() {
     ])
   );*/
   make_cpu_governor_decisions(Some(CPU_GOV_POWERSAVE), None).await;
-
+  dump_error!(
+    tokio::process::Command::new("sudo")
+      .args(&["-n", "/j/bins/super-affinity.sh", "ecores" ])
+      .status()
+      .await
+  );
 }
 
 async fn periodic_while_lid_closed() {
@@ -2299,6 +2304,12 @@ async fn periodic_while_lid_closed() {
 
 async fn on_lid_open() {
   LID_IS_CLOSED.store(false, std::sync::atomic::Ordering::SeqCst);
+  dump_error!(
+    tokio::process::Command::new("sudo")
+      .args(&["-n", "/j/bins/super-affinity.sh", "all" ])
+      .status()
+      .await
+  );
   tokio::task::spawn(
     util::blink_power_thinkpad_led(&[
       true, false, false, false,

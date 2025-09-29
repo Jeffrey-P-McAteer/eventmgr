@@ -98,12 +98,13 @@ pub async fn blink_lid_thinkpad_led(pattern: &[bool]) {
 
 pub async fn set_lid_thinkpad_led(content: &str) {
   const CONTROL_FILE: &'static str = "/sys/devices/platform/thinkpad_acpi/leds/tpacpi::lid_logo_dot/brightness";
-  dump_error_and_ret!(
-    tokio::process::Command::new("sudo")
-      .args(&["-n", "sh", "-c", format!("echo '{}' > {}", content, CONTROL_FILE).as_str(), ])
-      .status()
-      .await
-  );
+  write_to_sysfs_file(CONTROL_FILE, content).await;
+  // dump_error_and_ret!(
+  //   tokio::process::Command::new("sudo")
+  //     .args(&["-n", "sh", "-c", format!("echo '{}' > {}", content, CONTROL_FILE).as_str(), ])
+  //     .status()
+  //     .await
+  // );
 }
 
 
@@ -121,10 +122,32 @@ pub async fn blink_power_thinkpad_led(pattern: &[bool]) {
 
 pub async fn set_power_thinkpad_led(content: &str) {
   const CONTROL_FILE: &'static str = "/sys/devices/platform/thinkpad_acpi/leds/tpacpi::power/brightness";
-  dump_error_and_ret!(
-    tokio::process::Command::new("sudo")
-      .args(&["-n", "sh", "-c", format!("echo '{}' > {}", content, CONTROL_FILE).as_str(), ])
-      .status()
-      .await
-  );
+  write_to_sysfs_file(CONTROL_FILE, content).await;
+  // dump_error_and_ret!(
+  //   tokio::process::Command::new("sudo")
+  //     .args(&["-n", "sh", "-c", format!("echo '{}' > {}", content, CONTROL_FILE).as_str(), ])
+  //     .status()
+  //     .await
+  // );
+}
+
+// Efficiency hack; we write to the file directly, and if we fail we sudo chmod a+rw it and re-try.
+pub async fn write_to_sysfs_file(path: &'static str, content: &str) {
+  match tokio::fs::write(path, content.as_bytes()).await {
+    Ok(_) => { },
+    Err(e) => {
+      dump_error_and_ret!(
+        tokio::process::Command::new("sudo")
+          .args(&["-n", "chmod", "a+rw", path, ])
+          .status()
+          .await
+      );
+      match tokio::fs::write(path, content.as_bytes()).await {
+        Ok(_) => { },
+        Err(e) => {
+          dump_any!(e);
+        }
+      }
+    }
+  }
 }
