@@ -2121,12 +2121,7 @@ async fn turn_off_misc_lights() {
           }
         }
         if write_0_needed {
-          dump_error_and_ret!(
-            tokio::process::Command::new("sudo")
-              .args(&["-n", "sh", "-c", format!("echo 0 > {}", file_to_write_0_to).as_str(), ])
-              .status()
-              .await
-          );
+          util::write_to_sysfs_file(file_to_write_0_to, "0").await;
         }
       }
     }
