@@ -2245,14 +2245,24 @@ async fn handle_lid_states() {
 
   let mut lid_was_closed = false;
 
+  let mut loop_n = 0;
+
   loop {
     interval.tick().await;
+    loop_n += 1;
+    if loop_n > 1000000 {
+      loop_n = 0;
+    }
+
     if util::is_lid_closed(ACPI_PATH).await {
       if ! lid_was_closed {
         // Do on-lid-close tasks
         on_lid_close().await;
       }
       lid_was_closed = true;
+      if loop_n % 8 == 0 {
+        periodic_while_lid_closed().await;
+      }
     }
     else {
       if lid_was_closed {
@@ -2265,7 +2275,7 @@ async fn handle_lid_states() {
 
 async fn on_lid_close() {
   LID_IS_CLOSED.store(false, std::sync::atomic::Ordering::SeqCst);
-  tokio::task::spawn(
+  /*tokio::task::spawn(
     util::blink_lid_thinkpad_led(&[
       true, true, false,
       true, true, false,
@@ -2275,8 +2285,16 @@ async fn on_lid_close() {
       true, true, false,
       true, true, false,
     ])
-  );
+  );*/
   make_cpu_governor_decisions(Some(CPU_GOV_POWERSAVE), None).await;
+
+}
+
+async fn periodic_while_lid_closed() {
+  util::blink_lid_thinkpad_led(&[
+    true, true, false,
+    true, true, false,
+  ]).await;
 }
 
 async fn on_lid_open() {
