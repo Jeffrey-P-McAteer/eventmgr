@@ -71,6 +71,7 @@ async fn eventmgr() {
     PersistentAsyncTask::new("turn_off_misc_lights",             ||{ tokio::task::spawn(instrument_async("turn_off_misc_lights", turn_off_misc_lights()) ) }),
     PersistentAsyncTask::new("update_dns_records",               ||{ tokio::task::spawn(instrument_async("update_dns_records", update_dns_records()) ) }),
     PersistentAsyncTask::new("run_disregarded_pvms",             ||{ tokio::task::spawn(instrument_async("run_disregarded_pvms", run_disregarded_pvms()) ) }),
+    PersistentAsyncTask::new("run_package_downloader",           ||{ tokio::task::spawn(instrument_async("run_package_downloader", run_package_downloader()) ) }),
     PersistentAsyncTask::new("log_runtime_stats",                ||{ tokio::task::spawn(instrument_async("log_runtime_stats", log_runtime_stats()) ) }),
     PersistentAsyncTask::new("handle_lid_states",                ||{ tokio::task::spawn(instrument_async("handle_lid_states", handle_lid_states()) ) }),
   ];
@@ -2165,6 +2166,36 @@ async fn run_disregarded_pvms() {
 
     dump_error_and_ret!(
       tokio::process::Command::new("/j/bins/windows-vm-bg-runner.sh")
+        .status()
+        .await
+    );
+
+  }
+}
+
+async fn run_package_downloader() {
+  // Check for new packages every 2 hours
+  // Pacman already uses a lock to ensure we cannot run while another instance is running
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(2 * 60 * 60));
+  interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
+  // Run early
+  tokio::time::sleep( tokio::time::Duration::from_millis(2500) ).await;
+  dump_error_and_ret!(
+    tokio::process::Command::new("/j/bins/update_prefetcher.py")
+      .status()
+      .await
+  );
+
+  loop {
+    interval.tick().await;
+
+    if LID_IS_CLOSED.load(std::sync::atomic::Ordering::Relaxed) {
+      continue; // No package downloads when lid closed!
+    }
+
+    dump_error_and_cont!(
+      tokio::process::Command::new("/j/bins/update_prefetcher.py")
         .status()
         .await
     );
