@@ -626,7 +626,7 @@ async fn poll_device_audio_playback() {
       20.0 * (r / (u8::MAX as f64)).log10()
   }
 
-  let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(3600));
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(2600));
   interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
   let mut powersave_interval = tokio::time::interval(tokio::time::Duration::from_millis(12200));
   powersave_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -658,7 +658,7 @@ async fn poll_device_audio_playback() {
       };
       if spec.is_valid() {
         //print_time!("poll_device_audio_playback inner task"); // approx 2s, but not a high-cpu operation.
-        let mut monitor_device_vol_amnts: [f64; 8] = [-999990.0; 8];
+        let mut monitor_device_vol_amnts: [f64; 8] = [std::f64::NEG_INFINITY; 8];
         for (i, monitor_dev_name) in PULSE_AUDIO_MONITOR_DEVICE_NAMES.iter().enumerate() {
           let recording_name = format!("audiodetect-{monitor_dev_name}");
           let r = libpulse_simple_binding::Simple::new(
@@ -675,6 +675,7 @@ async fn poll_device_audio_playback() {
             Ok(simple) => {
               // Record several kilobytes...
               let mut sound_buffer = [0u8; 16384];
+              //let mut sound_buffer = [0u8; 8096];
 
               dump_error_and_cont!( simple.read(&mut sound_buffer) );
               let audio_vol_amount = rms_u8(&sound_buffer);
@@ -693,13 +694,18 @@ async fn poll_device_audio_playback() {
 
         let mut any_are_playing_audio = false;
         for audio_vol_amount in monitor_device_vol_amnts.iter() {
-          if *audio_vol_amount < -500.0 { // "regular" numbers are around -25.0 or so, so significantly below this (incl -inf) is no audio!
-            // NOP
-          }
-          else {
+          // if *audio_vol_amount < -500.0 { // "regular" numbers are around -25.0 or so, so significantly below this (incl -inf) is no audio!
+          //   // NOP
+          // }
+          // else {
+          //   any_are_playing_audio = true;
+          // }
+          if *audio_vol_amount >= -8.0 { // Arbitrary constant from observing audio effects
             any_are_playing_audio = true;
           }
         }
+
+        eprintln!("Audio is being played = {} (monitor_device_vol_amnts={:?})", any_are_playing_audio, monitor_device_vol_amnts);
 
         CURRENTLY_PLAYING_AUDIO.store(any_are_playing_audio, std::sync::atomic::Ordering::SeqCst);
 
