@@ -582,9 +582,12 @@ static CURRENTLY_PLAYING_AUDIO: once_cell::sync::Lazy<std::sync::atomic::AtomicB
 
 // From   pactl list | grep -i monitor
 const PULSE_AUDIO_MONITOR_DEVICE_NAMES:  &'static [&'static str] = &[
-  "alsa_output.usb-Generic_USB_Audio_201701110001-00.analog-stereo.monitor", // desk headphones via cable
-  "alsa_output.pci-0000_00_1f.3.analog-stereo", // laptop speakers
-  "bluez_output.F4_9D_8A_D2_E3_01.1.monitor", // Bluetooth headphones
+  // "alsa_output.usb-Generic_USB_Audio_201701110001-00.analog-stereo.monitor", // desk headphones via cable
+  // "alsa_output.pci-0000_00_1f.3.analog-stereo", // laptop speakers
+  // "bluez_output.F4_9D_8A_D2_E3_01.1.monitor", // Bluetooth headphones
+  "alsa_output.usb-Generic_USB_Audio_201701110001-00", // desk headphones via cable
+  "alsa_output.pci-0000_00_1f.3", // laptop speakers
+  "bluez_output.F4_9D_8A_D2_E3_01.1", // Bluetooth headphones
 ];
 
 async fn poll_device_audio_playback() {
@@ -602,31 +605,7 @@ async fn poll_device_audio_playback() {
     std::env::set_var("XDG_RUNTIME_DIR", "/run/user/1000");
   }
 
-
-  // Calculates RMS (root mean square) as a way to determine volume
-  fn rms_i16(buf: &[i16]) -> f64 {
-      if buf.len() == 0 { return 0f64; }
-      let mut sum = 0f64;
-      for &x in buf {
-          sum += (x as f64) * (x as f64);
-      }
-      let r = (sum / (buf.len() as f64)).sqrt();
-      // Convert value to decibels
-      20.0 * (r / (i16::MAX as f64)).log10()
-  }
-
-  fn rms_u8(buf: &[u8]) -> f64 {
-      if buf.len() == 0 { return 0f64; }
-      let mut sum = 0f64;
-      for &x in buf {
-          sum += (x as f64) * (x as f64);
-      }
-      let r = (sum / (buf.len() as f64)).sqrt();
-      // Convert value to decibels
-      20.0 * (r / (u8::MAX as f64)).log10()
-  }
-
-  let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(2600));
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(1800));
   interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
   let mut powersave_interval = tokio::time::interval(tokio::time::Duration::from_millis(12200));
   powersave_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -651,64 +630,67 @@ async fn poll_device_audio_playback() {
 
 
     dump_error_and_ret!( tokio::task::spawn_blocking(move || {
-      let spec = sample::Spec {
-        format: sample::Format::S16NE,
-        channels: 2,
-        rate: 44100,
-      };
-      if spec.is_valid() {
-        //print_time!("poll_device_audio_playback inner task"); // approx 2s, but not a high-cpu operation.
-        let mut monitor_device_vol_amnts: [f64; 8] = [std::f64::NEG_INFINITY; 8];
-        for (i, monitor_dev_name) in PULSE_AUDIO_MONITOR_DEVICE_NAMES.iter().enumerate() {
-          let recording_name = format!("audiodetect-{monitor_dev_name}");
-          let r = libpulse_simple_binding::Simple::new(
-            None,                // Use the default server
-            "eventmanager",
-            stream::Direction::Record,
-            Some(monitor_dev_name), // None,                // Use the default device
-            recording_name.as_str(),             // Description of our stream
-            &spec,               // Our sample format
-            None,                // Use default channel map
-            None                 // Use default buffering attributes
-          );
-          match r {
-            Ok(simple) => {
-              // Record several kilobytes...
-              let mut sound_buffer = [0u8; 16384];
-              //let mut sound_buffer = [0u8; 8096];
 
-              dump_error_and_cont!( simple.read(&mut sound_buffer) );
-              let audio_vol_amount = rms_u8(&sound_buffer);
+        // Run pw-dump and capture its JSON output
+        let output = std::process::Command::new("pw-dump")
+            .output()
+            .expect("Failed to run pw-dump");
+        match serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+          Ok(data) => {
 
-              if i < monitor_device_vol_amnts.len() {
-                monitor_device_vol_amnts[i] = audio_vol_amount;
+            let mut node_states = std::collections::HashMap::<String, String>::new();
+            if let Some(array) = data.as_array() {
+              for obj in array {
+                  // Only consider Nodes
+                  if obj.get("type").and_then(serde_json::Value::as_str) == Some("PipeWire:Interface:Node") {
+                      let info = obj.get("info").and_then(serde_json::Value::as_object);
+                      if let Some(info) = info {
+                          let name = info
+                              .get("props")
+                              .and_then(|p| p.get("node.name"))
+                              .and_then(serde_json::Value::as_str)
+                              .unwrap_or("<unknown>");
+                          let state = info
+                              .get("state")
+                              .and_then(serde_json::Value::as_str)
+                              .unwrap_or("<unknown>");
+                          //println!("{:<50}  state: {}", name, state);
+                          node_states.insert(name.to_string(), state.to_string());
+                      }
+                  }
               }
+          }
 
-            }
-            Err(err) => {
-              // Possibly bad monitor_dev_name, it happens they get renamed -_-
-              eprintln!("ERROR {}:{}> {:?}",  file!(), line!(), err);
+          let mut active_devices: [bool; 8] = [false; 8];
+
+          for (i, monitor_dev_name) in PULSE_AUDIO_MONITOR_DEVICE_NAMES.iter().enumerate() {
+            if let Some(dev_state) = node_states.get(*monitor_dev_name) {
+              match dev_state.as_str() {
+                "suspended" | "idle" => {
+                  if i < active_devices.len() {
+                    active_devices[i] = false;
+                  }
+                }
+                other => {
+                  if i < active_devices.len() {
+                    active_devices[i] = true;
+                  }
+                }
+              }
             }
           }
-        }
 
-        let mut any_are_playing_audio = false;
-        for audio_vol_amount in monitor_device_vol_amnts.iter() {
-          // if *audio_vol_amount < -500.0 { // "regular" numbers are around -25.0 or so, so significantly below this (incl -inf) is no audio!
-          //   // NOP
-          // }
-          // else {
-          //   any_are_playing_audio = true;
-          // }
-          if *audio_vol_amount >= -8.0 { // Arbitrary constant from observing audio effects
-            any_are_playing_audio = true;
+          let mut at_least_one_device_active = false;
+          for ad in active_devices.iter() {
+            if *ad {
+              at_least_one_device_active = true;
+            }
           }
+          CURRENTLY_PLAYING_AUDIO.store(at_least_one_device_active, std::sync::atomic::Ordering::SeqCst);
         }
-
-        eprintln!("Audio is being played = {} (monitor_device_vol_amnts={:?})", any_are_playing_audio, monitor_device_vol_amnts);
-
-        CURRENTLY_PLAYING_AUDIO.store(any_are_playing_audio, std::sync::atomic::Ordering::SeqCst);
-
+        Err(e) => {
+          eprintln!("pw-dump JSON parse {:?}", e);
+        }
       }
 
     }).await );

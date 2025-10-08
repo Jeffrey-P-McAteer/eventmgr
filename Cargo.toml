@@ -38,6 +38,9 @@ num_cpus = "1"
 lazy_static = "1.5"
 cpu-time = "*"
 
+serde_json = "*"
+
+
 
 [profile.release]
 #strip = true

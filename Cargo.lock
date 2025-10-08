@@ -601,6 +601,7 @@ dependencies = [
  "phf",
  "procfs",
  "rsdns",
+ "serde_json",
  "swayipc-async",
  "tokio",
 ]
