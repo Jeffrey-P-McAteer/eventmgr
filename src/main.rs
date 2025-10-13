@@ -620,6 +620,8 @@ async fn poll_device_audio_playback() {
       .await
   );
 
+  let audio_is_playing_flag_file = std::path::Path::new("/tmp/eventmgr-audio-is-playing");
+
   loop {
     if IN_POWERSAVE_MODE.load(std::sync::atomic::Ordering::Relaxed) {
       powersave_interval.tick().await;
@@ -687,6 +689,15 @@ async fn poll_device_audio_playback() {
             }
           }
           CURRENTLY_PLAYING_AUDIO.store(at_least_one_device_active, std::sync::atomic::Ordering::SeqCst);
+
+          // Also create a file at /tmp/eventmgr-audio-is-playing for other utilities to use
+          if at_least_one_device_active && !audio_is_playing_flag_file.exists() {
+            dump_error!(std::fs::write(audio_is_playing_flag_file, b"y"));
+          }
+          else if !at_least_one_device_active && audio_is_playing_flag_file.exists() {
+            dump_error!(std::fs::remove_file(audio_is_playing_flag_file));
+          }
+
         }
         Err(e) => {
           eprintln!("pw-dump JSON parse {:?}", e);

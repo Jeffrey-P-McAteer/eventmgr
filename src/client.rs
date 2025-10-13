@@ -242,9 +242,16 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
   if args.contains(&"do-lock".to_string()) {
     // If we aren't supposed to lock, don't.
     if std::path::Path::new("/tmp/no-lock").exists() {
-      std::thread::sleep(std::time::Duration::from_millis(60 * 1000));
+      std::thread::sleep(std::time::Duration::from_millis(30 * 1000));
       return true;
     }
+    // If anything is playing audio, assume a video or a game is being played and refuse to lock
+    if std::path::Path::new("/tmp/eventmgr-audio-is-playing").exists() {
+      std::thread::sleep(std::time::Duration::from_millis(30 * 1000));
+      return true;
+    }
+
+
     // Take screenshot + blur it
     dump_error!(
       std::process::Command::new("grim")
