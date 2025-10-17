@@ -146,6 +146,12 @@ pub async fn write_to_sysfs_file(path: &'static str, content: &str) {
         Ok(_) => { },
         Err(e) => {
           dump_any!(e);
+          dump_error_and_ret!(
+            tokio::process::Command::new("sudo")
+              .args(&["-n", "sh", "-c", format!("echo '{}' > {}", content, path).as_str(), ])
+              .status()
+              .await
+          );
         }
       }
     }
