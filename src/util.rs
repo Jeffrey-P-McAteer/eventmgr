@@ -87,10 +87,10 @@ pub async fn is_lid_closed(acpi_path: &str) -> bool {
 pub async fn blink_lid_thinkpad_led(pattern: &[bool]) {
   for go_on in pattern {
     if *go_on {
-      set_lid_thinkpad_led("1").await;
+      set_lid_thinkpad_led("1\n").await;
     }
     else {
-      set_lid_thinkpad_led("0").await;
+      set_lid_thinkpad_led("0\n").await;
     }
     tokio::time::sleep( tokio::time::Duration::from_millis(100) ).await;
   }
@@ -111,10 +111,10 @@ pub async fn set_lid_thinkpad_led(content: &str) {
 pub async fn blink_power_thinkpad_led(pattern: &[bool]) {
   for go_on in pattern {
     if *go_on {
-      set_power_thinkpad_led("1").await;
+      set_power_thinkpad_led("1\n").await;
     }
     else {
-      set_power_thinkpad_led("0").await;
+      set_power_thinkpad_led("0\n").await;
     }
     tokio::time::sleep( tokio::time::Duration::from_millis(100) ).await;
   }

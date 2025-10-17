@@ -2134,7 +2134,7 @@ async fn turn_off_misc_lights() {
           }
         }
         if write_0_needed {
-          util::write_to_sysfs_file(file_to_write_0_to, "0").await;
+          util::write_to_sysfs_file(file_to_write_0_to, "0\n").await;
         }
       }
     }
