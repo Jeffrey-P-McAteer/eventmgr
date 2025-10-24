@@ -1950,10 +1950,10 @@ async fn partial_resume_paused_procs() {
 
     // Delay for 0.2s to allow continued procs to run
     if in_powersave_mode {
-      tokio::time::sleep( std::time::Duration::from_millis(115) ).await;
+      tokio::time::sleep( std::time::Duration::from_millis(315) ).await;
     }
     else {
-      tokio::time::sleep( std::time::Duration::from_millis(85) ).await;
+      tokio::time::sleep( std::time::Duration::from_millis(185) ).await;
     }
 
     for i in 0..PAUSED_PROC_PIDS.len() {
