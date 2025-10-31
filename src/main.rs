@@ -147,7 +147,7 @@ async fn once_at_startup_nonblocking() {
 
 const NOTIFICATION_TIMEOUT_MS: u32 = 1800;
 
-async fn notify(msg: &str) {
+pub async fn notify(msg: &str) {
   println!("{}", msg);
   dump_error!(
     notify_rust::Notification::new()
@@ -159,7 +159,7 @@ async fn notify(msg: &str) {
   );
 }
 
-fn notify_sync(msg: &str) {
+pub fn notify_sync(msg: &str) {
   println!("{}", msg);
   dump_error!(
     notify_rust::Notification::new()
@@ -2127,16 +2127,8 @@ async fn turn_off_misc_lights() {
 
     for file_to_write_0_to in files_to_write_0_to.iter() {
       if std::path::Path::new(file_to_write_0_to).exists() {
-        // If the current value is not 0, write 0 to the file
-        let mut write_0_needed = true;
-        if let Ok(contents) = tokio::fs::read_to_string(file_to_write_0_to).await {
-          if contents.starts_with("0") {
-            write_0_needed = false;
-          }
-        }
-        if write_0_needed {
-          util::write_to_sysfs_file(file_to_write_0_to, "0\n").await;
-        }
+        // Always write 0 to the file
+        util::write_to_sysfs_file(file_to_write_0_to, "0\n").await;
       }
     }
 

@@ -156,4 +156,22 @@ pub async fn write_to_sysfs_file(path: &'static str, content: &str) {
       }
     }
   }
+  // Once written, check if the read value now begins w/ the same character. If not, fall back to sudo + echo.
+  if let Ok(new_contents) = tokio::fs::read(path).await {
+    let new_contents = String::from_utf8_lossy(&new_contents).to_string();
+    if new_contents.len() > 0 && content.len() > 0 {
+      if new_contents.chars().nth(0) != content.chars().nth(0) {
+
+        crate::notify(format!("Failed to write {} to sysfs {}", content, path).as_str()).await;
+
+        // New content did not stick! Fall back to  using sudo + echo.
+        dump_error_and_ret!(
+          tokio::process::Command::new("sudo")
+            .args(&["-n", "sh", "-c", format!("echo '{}' > {}", content, path).as_str(), ])
+            .status()
+            .await
+        );
+      }
+    }
+  }
 }
