@@ -1272,6 +1272,7 @@ static MOUNT_NET_SHARES: phf::Map<&'static str, &[(&'static str, &'static str)] 
       ("/mnt/machome/video",         "mount -t cifs -o username=jeffrey,password=$MACHOME_JEFF_PW,uid=1000,gid=1000 //machome.local/video /mnt/machome/video"),
       ("/mnt/machome/photo",         "mount -t cifs -o username=jeffrey,password=$MACHOME_JEFF_PW,uid=1000,gid=1000 //machome.local/photo /mnt/machome/photo"),
       ("/mnt/machome/miscellaneous", "mount -t cifs -o username=jeffrey,password=$MACHOME_JEFF_PW,uid=1000,gid=1000 //machome.local/miscellaneous /mnt/machome/miscellaneous"),
+      ("/mnt/machome/k3s-cluster",   "mount -t cifs -o username=jeffrey,password=$MACHOME_JEFF_PW,uid=1000,gid=1000 //machome.local/k3s-cluster /mnt/machome/k3s-cluster"),
       ("/mnt/machome/family-photos", "mount -t cifs -o username=jeffrey,password=$MACHOME_JEFF_PW,uid=1000,gid=1000 //machome.local/family-photos /mnt/machome/family-photos"),
       ("/mnt/machome/web",           "mount -t cifs -o username=jeffrey,password=$MACHOME_JEFF_PW,uid=1000,gid=1000 //machome.local/web /mnt/machome/web"),
       ("/mnt/machome/homes_jeffrey", "mount -t cifs -o username=jeffrey,password=$MACHOME_JEFF_PW,uid=1000,gid=1000 //machome.local/homes/jeffrey /mnt/machome/homes_jeffrey"),
