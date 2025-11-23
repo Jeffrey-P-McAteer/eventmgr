@@ -159,29 +159,29 @@ pub async fn notify(msg: &str) {
   );
 }
 
-pub fn notify_sync(msg: &str) {
+pub fn notify_sync(msg: &str) -> Result<notify_rust::NotificationHandle, Box<dyn std::error::Error>> {
   println!("{}", msg);
-  dump_error!(
+  Ok(
     notify_rust::Notification::new()
       //.summary("EventMgr")
       .body(msg)
       //.icon("firefox")
       .timeout(notify_rust::Timeout::Milliseconds(NOTIFICATION_TIMEOUT_MS)) //milliseconds
-      .show()
-  );
+      .show()?
+  )
 }
 
 
-async fn notify_icon(icon: &str, msg: &str) {
+async fn notify_icon(icon: &str, msg: &str) -> Result<notify_rust::NotificationHandle, Box<dyn std::error::Error>> {
   println!("{}", msg);
-  dump_error!(
+  Ok(
     notify_rust::Notification::new()
       //.summary("EventMgr")
       .body(msg)
       .icon(icon)
       .timeout(notify_rust::Timeout::Milliseconds(NOTIFICATION_TIMEOUT_MS)) //milliseconds
-      .show()
-  );
+      .show()?
+  )
 }
 
 fn notify_icon_sync(icon: &str, msg: &str) {
@@ -804,6 +804,149 @@ async fn do_simple_client_arg1(arg: &str) {
     KEYBOARD_IS_30S_INACTIVE.store(false, std::sync::atomic::Ordering::SeqCst);
     make_cpu_governor_decisions(None, None).await;
   }
+  else if arg == "brightness-down" || arg == "brightness-up" {
+    change_monitor_brightness(arg == "brightness-up").await;
+  }
+
+
+}
+
+// Maps intel / sysfs brightness ranges to a list of acceptable
+// ddcutil brightness ranges.
+pub static BRIGHTNESS_DDCUTIL_MAP: &[((u32, u32), (u32, u32))] = &[
+  ((0, 450),     (1, 1)),
+  ((450, 2000),  (1, 6)),
+  ((2000, 5000), (6, 26)),
+  ((5000, 25000), (26, 100)),
+];
+
+static LAST_BRIGHTNESS_NOTIFICATION_HANDLE: once_cell::sync::Lazy<tokio::sync::RwLock<Option<notify_rust::NotificationHandle>>> = once_cell::sync::Lazy::new(||
+  tokio::sync::RwLock::new( None )
+);
+
+async fn change_monitor_brightness(go_brighter: bool) {
+  let mut wanted_ddcutil_brightness_val: Option<u32> = None;
+
+    let brightness_multiplier: f64;
+    if go_brighter {
+      brightness_multiplier = 1.30;
+    }
+    else {
+      brightness_multiplier = 0.70;
+    }
+
+    let mut intel_set_brightness = 999;
+
+    // Adjust all devices which present under /sys
+    if let Ok(monitors) = bulbb::monitor::MonitorDevice::get_all_monitor_devices() {
+      for monitor in monitors {
+        let current_brightness = monitor.get_brightness();
+        println!("current_brightness={}", current_brightness);
+        let mut new_brightness = (current_brightness as f64 * brightness_multiplier) as u32;
+
+        if new_brightness == current_brightness {
+          if brightness_multiplier < 1.0 {
+            if new_brightness > 0 {
+              new_brightness -= 1;
+            }
+          }
+          else {
+            new_brightness += 1;
+          }
+        }
+
+        if new_brightness < 1 {
+          new_brightness = 1;
+        }
+        if new_brightness > 24242 {
+          new_brightness = 24242; // For intel monitor
+        }
+
+        println!("new_brightness={}", new_brightness);
+
+        intel_set_brightness = new_brightness;
+
+        if let Err(e) = monitor.set_brightness(new_brightness) {
+          println!("Error setting brightness: {:?}", e);
+          dump_error!( // Give everyone write access
+            std::process::Command::new("sudo")
+              .args(&["sh", "-c", "chmod a+rw /sys/class/backlight/*/*"])
+              .status()
+          );
+        }
+
+        for ((begin_b, end_b), (ddc_begin_b, ddc_end_b)) in BRIGHTNESS_DDCUTIL_MAP {
+          if new_brightness >= *begin_b && new_brightness <= *end_b {
+            let range = end_b - begin_b;
+            let fraction_of_range = (new_brightness - begin_b) as f32 / range as f32;
+            let ddc_range = ddc_end_b - ddc_begin_b;
+            let ddc_used_range = (ddc_range as f32 * fraction_of_range) as u32;
+
+            wanted_ddcutil_brightness_val = Some(ddc_begin_b + ddc_used_range);
+
+            break;
+          }
+        }
+
+      }
+    }
+
+
+    // Also adjust ddcutil devices
+    let ddcutil_serials = [
+      "PTBLAJA000229",
+    ];
+    for ddcutil_serial in ddcutil_serials.iter() {
+      let exists_flag_file = format!("/tmp/.ddcutil_notpresent_{}", ddcutil_serial);
+
+      if std::path::Path::new(&exists_flag_file).exists() {
+        // 9 out of 10 times, exit!
+        let rand_num = fastrand::usize(0..100);
+        if rand_num < 95 {
+          continue;
+        }
+      }
+
+      println!("wanted_ddcutil_brightness_val = {:?}", wanted_ddcutil_brightness_val);
+      if let Some(wanted_ddcutil_brightness_val) = wanted_ddcutil_brightness_val {
+        let res = std::process::Command::new("ddcutil")
+            .args(&["setvcp", "0x10", format!("{}", wanted_ddcutil_brightness_val).as_str(), "--sn", ddcutil_serial, "--sleep-multiplier", "0.1", "--noverify"])
+            .status();
+        if let Ok(exit_status) = res {
+          if !exit_status.success() {
+            // This indicates ddcutil_serial is not connected; log to /tmp/ as such!
+            dump_error!( std::fs::write(exists_flag_file, "!") );
+          }
+          else if std::path::Path::new(&exists_flag_file).exists() {
+            // Delete it!
+            dump_error!( std::fs::remove_file(&exists_flag_file) );
+          }
+        }
+      }
+
+    }
+
+    if !std::path::Path::new("/sys/kernel/btf/i2c_dev").exists() {
+      dump_error!(
+        std::process::Command::new("sudo")
+          .args(&["-n", "modprobe", "i2c-dev"])
+          .status()
+      );
+    }
+
+    {
+      // Clear the last notification, if we have one;
+      let mut last_brightness_store_handle = LAST_BRIGHTNESS_NOTIFICATION_HANDLE.write().await;
+      if let Some(nh) = last_brightness_store_handle.take() { // leaves None behind
+        nh.close();
+      }
+
+      // Now show the next notification;
+      if let Ok(nh) = notify_sync(format!("Brightness: {:.2}", ((intel_set_brightness as f32 / 24242.0) * 100.0 ) ).as_str()) {
+        *last_brightness_store_handle = Some(nh);
+      }
+    }
+
 }
 
 
