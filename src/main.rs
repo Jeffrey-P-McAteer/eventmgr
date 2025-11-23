@@ -893,10 +893,10 @@ async fn change_monitor_brightness(go_brighter: bool) {
 
 
     // Also adjust ddcutil devices
-    let ddcutil_serials = [
+    const DDCUTIL_SERIALS: &[&'static str] = &[
       "PTBLAJA000229",
     ];
-    for ddcutil_serial in ddcutil_serials.iter() {
+    for ddcutil_serial in DDCUTIL_SERIALS.iter() {
       let exists_flag_file = format!("/tmp/.ddcutil_notpresent_{}", ddcutil_serial);
 
       if std::path::Path::new(&exists_flag_file).exists() {
