@@ -456,7 +456,7 @@ async fn on_window_focus(window_name: &str, sway_node: &swayipc_async::Node) {
     if is_tf2_window(&lower_window) {
       unpause_proc("tf_linux64").await;
     }
-    else if is_bg3_window(&lower_window) {
+    if is_bg3_window(&lower_window) {
       unpause_proc("bg3_dx11.exe").await;
     }
     UTC_S_LAST_SEEN_PAUSABLE_GAME_WINDOW.store(
@@ -483,15 +483,11 @@ async fn on_window_focus(window_name: &str, sway_node: &swayipc_async::Node) {
       make_cpu_governor_decisions(None, None).await;
     }
 
-    // Only pause IF we've seen team fortress fullscreen in the last 15 minutes / 900s
+    // Only pause IF we've seen team fortress fullscreen in the last 10 minutes / 600s
     let seconds_since_saw_game_window = (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("Time travel!").as_secs() as usize) - UTC_S_LAST_SEEN_PAUSABLE_GAME_WINDOW.load(std::sync::atomic::Ordering::Relaxed);
-    if seconds_since_saw_game_window < 300 {
-      if is_tf2_window(&lower_window) {
-        pause_proc("tf_linux64").await;
-      }
-      else if is_bg3_window(&lower_window) {
-        pause_proc("bg3_dx11.exe").await;
-      }
+    if seconds_since_saw_game_window < 600 {
+      pause_proc("tf_linux64").await;
+      pause_proc("bg3_dx11.exe").await;
     }
 
   }
@@ -1725,11 +1721,11 @@ fn is_tf2_window(lower_name: &str) -> bool {
 }
 
 fn is_bg3_window(lower_name: &str) -> bool {
-  lower_name.contains("baldur") && lower_name.contains("gate") && lower_name.contains(" 3")
+  lower_name.contains("baldur") && lower_name.contains("gate") && lower_name.contains("3")
 }
 
-fn is_high_perf_window(name: &str) -> bool {
-  is_tf2_window(name) || is_bg3_window(name)
+fn is_high_perf_window(lower_name: &str) -> bool {
+  is_tf2_window(lower_name) || is_bg3_window(lower_name)
 }
 
 
@@ -1927,9 +1923,21 @@ static PAUSED_PROC_PIDS: once_cell::sync::Lazy<[std::sync::atomic::AtomicI32; 32
 ]);
 
 async fn pause_proc(name: &str) {
+  eprintln!("Attempting to pause_proc({})", name);
   let mut paused_something = false;
   for p in dump_error_and_ret!( procfs::process::all_processes() ) {
     if let Ok(p) = p {
+      // Check arg0, as this corresponds to `ps aux` outputs
+      if let Ok(cmdline_vec) = p.cmdline() {
+        if let Some(arg0) = cmdline_vec.get(0) {
+          if arg0 == name || arg0.contains(name) {
+            if pause_pid( p.pid ).await {
+              paused_something = true;
+            }
+          }
+        }
+      }
+      // For things like WINE exe files, the linux process exe is actually `wineserver`
       if let Ok(p_exe) = p.exe() {
         if let Some(p_file_name) = p_exe.file_name() {
           let p_file_name = p_file_name.to_string_lossy();
@@ -2050,10 +2058,20 @@ async fn unpause_proc(name: &str) {
   let mut un_paused_something = false;
   for p in dump_error_and_ret!( procfs::process::all_processes() ) {
     if let Ok(p) = p {
+      // Check arg0, as this corresponds to `ps aux` outputs
+      if let Ok(cmdline_vec) = p.cmdline() {
+        if let Some(arg0) = cmdline_vec.get(0) {
+          if arg0 == name || arg0.contains(name) {
+            unpause_pid( p.pid ).await;
+            un_paused_something = true;
+          }
+        }
+      }
+      // For things like WINE exe files, the linux process exe is actually `wineserver`
       if let Ok(p_exe) = p.exe() {
         if let Some(p_file_name) = p_exe.file_name() {
           let p_file_name = p_file_name.to_string_lossy();
-          if p_file_name == name {
+          if p_file_name == name || p_file_name.contains(name) {
             unpause_pid( p.pid ).await;
             un_paused_something = true;
           }
