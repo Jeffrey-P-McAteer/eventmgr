@@ -419,7 +419,7 @@ async fn set_sway_wallpaper<T: AsRef<str>>(wallpaper: T) {
 }
 
 
-static UTC_S_LAST_SEEN_FS_TEAM_FORTRESS: once_cell::sync::Lazy<std::sync::atomic::AtomicUsize> = once_cell::sync::Lazy::new(||
+static UTC_S_LAST_SEEN_PAUSABLE_GAME_WINDOW: once_cell::sync::Lazy<std::sync::atomic::AtomicUsize> = once_cell::sync::Lazy::new(||
   std::sync::atomic::AtomicUsize::new(0)
 );
 
@@ -448,13 +448,18 @@ async fn on_window_focus(window_name: &str, sway_node: &swayipc_async::Node) {
   darken_kbd_if_video_focused_and_audio_playing().await;
 
   let lower_window = window_name.to_lowercase();
-  if is_tf2_window(&lower_window) {
+  if is_high_perf_window(&lower_window) {
     //make_cpu_governor_decisions(Some(CPU_GOV_PERFORMANCE), None).await;
     HAVE_HIGH_PERF_WINDOW_VISIBLE.store(true, std::sync::atomic::Ordering::SeqCst);
     HAVE_LOW_PERF_WINDOW_VISIBLE.store(false, std::sync::atomic::Ordering::SeqCst);
     make_cpu_governor_decisions(None, None).await;
-    unpause_proc("tf_linux64").await;
-    UTC_S_LAST_SEEN_FS_TEAM_FORTRESS.store(
+    if is_tf2_window(&lower_window) {
+      unpause_proc("tf_linux64").await;
+    }
+    else if is_bg3_window(&lower_window) {
+      unpause_proc("bg3_dx11.exe").await;
+    }
+    UTC_S_LAST_SEEN_PAUSABLE_GAME_WINDOW.store(
       std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("Time travel!").as_secs() as usize,
       std::sync::atomic::Ordering::Relaxed
     );
@@ -479,20 +484,17 @@ async fn on_window_focus(window_name: &str, sway_node: &swayipc_async::Node) {
     }
 
     // Only pause IF we've seen team fortress fullscreen in the last 15 minutes / 900s
-    let seconds_since_saw_tf2_fs = (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("Time travel!").as_secs() as usize) - UTC_S_LAST_SEEN_FS_TEAM_FORTRESS.load(std::sync::atomic::Ordering::Relaxed);
-    if seconds_since_saw_tf2_fs < 900 {
-      // AND we're not playing audio
-      /*
-      let currently_playing_audio = CURRENTLY_PLAYING_AUDIO.load(std::sync::atomic::Ordering::SeqCst);
-      if ! currently_playing_audio {
+    let seconds_since_saw_game_window = (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("Time travel!").as_secs() as usize) - UTC_S_LAST_SEEN_PAUSABLE_GAME_WINDOW.load(std::sync::atomic::Ordering::Relaxed);
+    if seconds_since_saw_game_window < 300 {
+      if is_tf2_window(&lower_window) {
         pause_proc("tf_linux64").await;
       }
-      */
-      pause_proc("tf_linux64").await;
+      else if is_bg3_window(&lower_window) {
+        pause_proc("bg3_dx11.exe").await;
+      }
     }
 
   }
-
 
 }
 
@@ -1722,8 +1724,12 @@ fn is_tf2_window(lower_name: &str) -> bool {
   lower_name.contains("team") && lower_name.contains("fortress") && lower_name.contains("opengl")
 }
 
+fn is_bg3_window(lower_name: &str) -> bool {
+  lower_name.contains("baldur") && lower_name.contains("gate") && lower_name.contains(" 3")
+}
+
 fn is_high_perf_window(name: &str) -> bool {
-  is_tf2_window(name)
+  is_tf2_window(name) || is_bg3_window(name)
 }
 
 
@@ -1927,7 +1933,7 @@ async fn pause_proc(name: &str) {
       if let Ok(p_exe) = p.exe() {
         if let Some(p_file_name) = p_exe.file_name() {
           let p_file_name = p_file_name.to_string_lossy();
-          if p_file_name == name {
+          if p_file_name == name || p_file_name.contains(name) {
             if pause_pid( p.pid ).await {
               paused_something = true;
             }
