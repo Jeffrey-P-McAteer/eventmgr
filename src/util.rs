@@ -27,6 +27,23 @@ pub async fn set_cpu(governor: &str) {
   );
 }
 
+
+pub async fn enable_p_cores(enabled: bool) {
+  let number = if enabled { "1" } else { "0 "};
+  const CPU_PCORE_CONTROLS: &[&'static str] = &[
+    //"/sys/devices/system/cpu/cpu0/online", // Cannot turn cpu0 off
+    "/sys/devices/system/cpu/cpu1/online",
+    "/sys/devices/system/cpu/cpu2/online",
+    "/sys/devices/system/cpu/cpu3/online",
+    "/sys/devices/system/cpu/cpu4/online",
+    "/sys/devices/system/cpu/cpu5/online",
+  ];
+  for online_control_file in CPU_PCORE_CONTROLS {
+    write_to_sysfs_file(online_control_file, number).await;
+  }
+}
+
+
 // Trait lifetime gymnastics want &'static lifetimes, we'll give them &'static lifetimes!
 pub static CPU_GOV_CONSERVATIVE : &'static str = "conservative";
 pub static CPU_GOV_ONDEMAND     : &'static str = "ondemand";

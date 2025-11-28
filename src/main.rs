@@ -63,6 +63,7 @@ async fn eventmgr() {
     PersistentAsyncTask::new("poll_downloads",                   ||{ tokio::task::spawn(instrument_async("poll_downloads", poll_downloads()) ) }),
     PersistentAsyncTask::new("poll_wallpaper_rotation",          ||{ tokio::task::spawn(instrument_async("poll_wallpaper_rotation", poll_wallpaper_rotation()) ) }),
     // PersistentAsyncTask::new("poll_check_glucose",               ||{ tokio::task::spawn(instrument_async("poll_check_glucose", poll_check_glucose()) ) }),
+    PersistentAsyncTask::new("poll_pcore_controls",              ||{ tokio::task::spawn(instrument_async("poll_pcore_controls", poll_pcore_controls()) ) }),
     PersistentAsyncTask::new("mount_disks",                      ||{ tokio::task::spawn(instrument_async("mount_disks", mount_disks()) ) }),
     PersistentAsyncTask::new("mount_net_shares",                 ||{ tokio::task::spawn(instrument_async("mount_net_shares", mount_net_shares()) ) }),
     PersistentAsyncTask::new("bump_cpu_for_performance_procs",   ||{ tokio::task::spawn(instrument_async("bump_cpu_for_performance_procs", bump_cpu_for_performance_procs()) ) }),
@@ -250,6 +251,7 @@ async fn handle_exit_signals() {
     };
     if want_shutdown {
       println!("Got SIG{{TERM/INT}}, shutting down!");
+      enable_p_cores(true).await;
       unpause_all_paused_pids().await;
       unmount_all_disks().await;
       // Allow spawned futures to complete...
@@ -1222,6 +1224,26 @@ async fn poll_check_glucose() {
         .status()
         .await
     );
+
+  }
+}
+
+async fn poll_pcore_controls() {
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(4));
+  interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+  let mut last_tick_had_no_pcores = false;
+  loop {
+    interval.tick().await;
+
+    let no_pcores = tokio::fs::metadata("/tmp/no-pcores").await.is_ok();
+    if no_pcores {
+      last_tick_had_no_pcores = true;
+      enable_p_cores(false).await;
+    }
+    else if last_tick_had_no_pcores {
+      last_tick_had_no_pcores = false;
+      enable_p_cores(true).await; // last iteration turned them off, turn them back on + flip our flag.
+    }
 
   }
 }
