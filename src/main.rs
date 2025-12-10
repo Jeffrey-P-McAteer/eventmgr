@@ -492,7 +492,7 @@ async fn on_window_focus(window_name: &str, sway_node: &swayipc_async::Node) {
     if seconds_since_saw_game_window < 600 {
       // pause_proc("tf_linux64").await;
       // pause_proc("bg3_dx11.exe").await;
-      set_nspawn_container_cpu_limit("steam", "2%").await;
+      set_nspawn_container_cpu_limit("steam", "6%").await;
     }
 
   }
