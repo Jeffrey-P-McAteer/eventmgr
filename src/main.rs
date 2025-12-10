@@ -457,11 +457,11 @@ async fn on_window_focus(window_name: &str, sway_node: &swayipc_async::Node) {
     make_cpu_governor_decisions(None, None).await;
     if is_tf2_window(&lower_window) {
       //unpause_proc("tf_linux64").await;
-      set_nspawn_container_cpu_limit("steam", "100%").await;
+      set_nspawn_container_cpu_limit("steam", "" /* max */).await;
     }
     if is_bg3_window(&lower_window) {
       //unpause_proc("bg3_dx11.exe").await;
-      set_nspawn_container_cpu_limit("steam", "100%").await;
+      set_nspawn_container_cpu_limit("steam", "" /* max */).await;
     }
     UTC_S_LAST_SEEN_PAUSABLE_GAME_WINDOW.store(
       std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("Time travel!").as_secs() as usize,
@@ -2170,7 +2170,7 @@ async fn set_nspawn_container_cpu_limit(container_name: &str, cpu_limit: &str) {
   dump_error!(
     tokio::process::Command::new("sudo")
       .args(&["-n", "systemctl", "set-property",
-                        format!("systemd-nspawn@{}.service", container_name).as_str(),
+                        format!("machine-{}.scope", container_name).as_str(),
                         format!("CPUQuota={}", cpu_limit).as_str()
       ])
       .status()
