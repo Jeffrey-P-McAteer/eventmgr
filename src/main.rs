@@ -67,7 +67,7 @@ async fn eventmgr() {
     PersistentAsyncTask::new("mount_disks",                      ||{ tokio::task::spawn(instrument_async("mount_disks", mount_disks()) ) }),
     PersistentAsyncTask::new("mount_net_shares",                 ||{ tokio::task::spawn(instrument_async("mount_net_shares", mount_net_shares()) ) }),
     PersistentAsyncTask::new("bump_cpu_for_performance_procs",   ||{ tokio::task::spawn(instrument_async("bump_cpu_for_performance_procs", bump_cpu_for_performance_procs()) ) }),
-    PersistentAsyncTask::new("partial_resume_paused_procs",      ||{ tokio::task::spawn(instrument_async("partial_resume_paused_procs", partial_resume_paused_procs()) ) }),
+    //PersistentAsyncTask::new("partial_resume_paused_procs",      ||{ tokio::task::spawn(instrument_async("partial_resume_paused_procs", partial_resume_paused_procs()) ) }),
     PersistentAsyncTask::new("mount_swap_files",                 ||{ tokio::task::spawn(instrument_async("mount_swap_files", mount_swap_files()) ) }),
     PersistentAsyncTask::new("turn_off_misc_lights",             ||{ tokio::task::spawn(instrument_async("turn_off_misc_lights", turn_off_misc_lights()) ) }),
     PersistentAsyncTask::new("update_dns_records",               ||{ tokio::task::spawn(instrument_async("update_dns_records", update_dns_records()) ) }),
@@ -252,7 +252,8 @@ async fn handle_exit_signals() {
     if want_shutdown {
       println!("Got SIG{{TERM/INT}}, shutting down!");
       enable_p_cores(true).await;
-      unpause_all_paused_pids().await;
+      //unpause_all_paused_pids().await;
+      set_nspawn_container_cpu_limit("steam", "" /* max */).await;
       unmount_all_disks().await;
       // Allow spawned futures to complete...
       tokio::time::sleep( tokio::time::Duration::from_millis(500) ).await;
@@ -1909,6 +1910,7 @@ async fn make_cpu_governor_decisions(
 // anything < 4 is considered is an invalid value for PIDs,
 // anything > 4 will be paused. If a request for a new PID to be
 // paused comes in and all slots are full the request is ignored.
+/*
 static PAUSED_PROC_PIDS: once_cell::sync::Lazy<[std::sync::atomic::AtomicI32; 32]> = once_cell::sync::Lazy::new(|| [
   std::sync::atomic::AtomicI32::new(0),
   std::sync::atomic::AtomicI32::new(0),
@@ -2024,6 +2026,7 @@ async fn unpause_all_paused_pids() {
     }
   }
 }
+*/
 
 async fn unmount_all_disks() {
   let mut all_possible_disk_mount_paths: Vec<String> = vec![];
@@ -2055,6 +2058,7 @@ async fn unmount_all_disks() {
 
 }
 
+/*
 async fn unpause_pid(pid: i32) {
   // For all slots, set to 0 if == pid
   for i in 0..PAUSED_PROC_PIDS.len() {
@@ -2163,6 +2167,7 @@ async fn partial_resume_paused_procs() {
 
   }
 }
+*/
 
 // Replacement for the pause_proc and unpause_proc handlers; this is VASTLY more cpu-efficient,
 // plus the process never really is stopped, making network traffic much smoother.

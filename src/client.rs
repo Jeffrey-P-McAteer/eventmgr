@@ -78,7 +78,7 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
       }
 
       if want_vol_up {
-        notify_sync(format!("Volume {}%", (curr_volume * 105.0).round() ).as_str());
+        let _ = notify_sync(format!("Volume {}%", (curr_volume * 105.0).round() ).as_str());
         dump_error!(
           std::process::Command::new("wpctl")
             .args(&["set-volume", "-l", "1.5", "@DEFAULT_AUDIO_SINK@", "5%+"])
@@ -86,7 +86,7 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
         );
       }
       else {
-        notify_sync(format!("Volume {}%", (curr_volume * 95.0).round() ).as_str());
+        let _ = notify_sync(format!("Volume {}%", (curr_volume * 95.0).round() ).as_str());
         dump_error!(
           std::process::Command::new("wpctl")
             .args(&["set-volume", "@DEFAULT_AUDIO_SINK@", "5%-"])
