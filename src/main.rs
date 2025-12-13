@@ -1808,9 +1808,13 @@ async fn make_cpu_governor_decisions(
           set_cpu(CPU_GOV_POWERSAVE).await;
           set_gov = CPU_GOV_POWERSAVE;
         }
-        else if current_gov != CPU_GOV_PERFORMANCE {
-          set_cpu(CPU_GOV_PERFORMANCE).await;
-          set_gov = CPU_GOV_PERFORMANCE;
+        // else if current_gov != CPU_GOV_PERFORMANCE {
+        //   set_cpu(CPU_GOV_PERFORMANCE).await;
+        //   set_gov = CPU_GOV_PERFORMANCE;
+        // }
+        else if current_gov != CPU_GOV_ONDEMAND {
+          set_cpu(CPU_GOV_ONDEMAND).await;
+          set_gov = CPU_GOV_ONDEMAND;
         }
 
       }
