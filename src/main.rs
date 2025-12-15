@@ -490,7 +490,7 @@ async fn on_window_focus(window_name: &str, sway_node: &swayipc_async::Node) {
 
     // Only pause IF we've seen team fortress fullscreen in the last 10 minutes / 600s
     let seconds_since_saw_game_window = (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("Time travel!").as_secs() as usize) - UTC_S_LAST_SEEN_PAUSABLE_GAME_WINDOW.load(std::sync::atomic::Ordering::Relaxed);
-    if seconds_since_saw_game_window < 600 {
+    if seconds_since_saw_game_window < 30 {
       // pause_proc("tf_linux64").await;
       // pause_proc("bg3_dx11.exe").await;
       set_nspawn_container_cpu_limit("steam", "6%").await;
