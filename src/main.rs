@@ -1545,11 +1545,18 @@ async fn mount_net_shares() {
                   else {
                     println!("Got no data (inner) from tokio::net::lookup_host({})", &share_host);
                     can_ping_share_host = Some(false); // no data!
+                    // Count as an error
+                    let ec = host_mount_err_count.get(share_host).unwrap_or(&0);
+                    host_mount_err_count.insert(share_host, ec + 1);
                   }
                 }
                 else {
                   //println!("Got no data from tokio::net::lookup_host({})", &share_host);
                   can_ping_share_host = Some(false); // no data!
+
+                  // Count as an error
+                  let ec = host_mount_err_count.get(share_host).unwrap_or(&0);
+                  host_mount_err_count.insert(share_host, ec + 1);
 
                   // We try something old-school and slow to try and fix the situation;
                   let systemd_resolved_endpt = std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 53)), 53);
@@ -1607,6 +1614,10 @@ async fn mount_net_shares() {
                   eprintln!("{}", e);
                   let ec = host_mount_err_count.get(share_host).unwrap_or(&0);
                   host_mount_err_count.insert(share_host, ec + 1);
+                }
+                else {
+                  // Mount success, clear errors!
+                  host_mount_err_count.insert(share_host, 0);
                 }
 
               }
