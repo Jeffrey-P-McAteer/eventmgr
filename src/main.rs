@@ -1494,6 +1494,11 @@ async fn mount_net_shares() {
   const HOST_MAX_MISSED_PINGS: usize = 4;
   let mut host_missed_pings: std::collections::HashMap::<&'static str, usize> = std::collections::HashMap::<&'static str, usize>::new();
 
+  // We only try to resolve the host up to this many times before giving up, until eventmgr is restarted (TODO and/or network re-connects?)
+  const MAX_MOUNT_ERRS_ALLOWED: usize = 4;
+  let mut host_mount_err_count: std::collections::HashMap::<&'static str, usize> = std::collections::HashMap::<&'static str, usize>::new();
+
+
   loop {
 
     while LID_IS_CLOSED.load(std::sync::atomic::Ordering::Relaxed) {
@@ -1509,6 +1514,14 @@ async fn mount_net_shares() {
 
     if let Ok(info) = mountinfo::MountInfo::new() {
       for (share_host, disk_mount_items) in MOUNT_NET_SHARES.entries() {
+
+        // If we previously had too many errors, skip attempts for this host
+        let ec = host_mount_err_count.get(share_host).unwrap_or(&0);
+        if disk_mount_items.len() > 0 && *ec / disk_mount_items.len() > MAX_MOUNT_ERRS_ALLOWED {
+          eprintln!("Not attempting to mount under {} because we saw {} (>{}) errors!", share_host, ec, MAX_MOUNT_ERRS_ALLOWED);
+          continue;
+        }
+
         let mut can_ping_share_host: Option<bool> = None;
         for (disk_mount_path, disk_mount_cmd) in disk_mount_items.iter() {
           if ! is_mounted(&info, disk_mount_path).await {
@@ -1585,13 +1598,16 @@ async fn mount_net_shares() {
                     .await
                 );
 
-                dump_error!(
-                  tokio::process::Command::new("sudo")
+                let mount_r = tokio::process::Command::new("sudo")
                     .envs(&network_subproc_env)
                     .args(&["--preserve-env", "-n", "sh", "-c", disk_mount_cmd])
                     .status()
-                    .await
-                );
+                    .await;
+                if let Err(e) = mount_r {
+                  eprintln!("{}", e);
+                  let ec = host_mount_err_count.get(share_host).unwrap_or(&0);
+                  host_mount_err_count.insert(share_host, ec + 1);
+                }
 
               }
             }
