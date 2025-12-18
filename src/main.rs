@@ -1517,7 +1517,7 @@ async fn mount_net_shares() {
 
         // If we previously had too many errors, skip attempts for this host
         let ec = host_mount_err_count.get(share_host).unwrap_or(&0);
-        if disk_mount_items.len() > 0 && *ec / disk_mount_items.len() > MAX_MOUNT_ERRS_ALLOWED {
+        if disk_mount_items.len() > 0 && *ec > MAX_MOUNT_ERRS_ALLOWED {
           eprintln!("Not attempting to mount under {} because we saw {} (>{}) errors!", share_host, ec, MAX_MOUNT_ERRS_ALLOWED);
           continue;
         }
