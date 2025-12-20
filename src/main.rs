@@ -771,6 +771,11 @@ async fn handle_socket_msgs() {
                 do_simple_client_arg1(&arg1_string).await;
               }
             }
+            else if vec_of_vals.len() == 3 {
+              if let (ciborium::value::Value::Text(arg1_string),ciborium::value::Value::Text(arg2_string)) = (&vec_of_vals[1],&vec_of_vals[2]) {
+                do_simple_client_arg2(&arg1_string, &arg2_string).await;
+              }
+            }
           }
         }
         Err(e) => {
@@ -812,8 +817,33 @@ async fn do_simple_client_arg1(arg: &str) {
     change_monitor_brightness(arg == "brightness-up").await;
   }
 
+}
+
+async fn do_simple_client_arg2(arg1: &str, arg2: &str) {
+
+  println!("do_simple_client_arg2({:?} {:?})", arg1, arg2);
+
+  if arg1 == "check-disk" {
+    mount_potentially_unmanaged_disk(arg2).await;
+  }
 
 }
+
+async fn mount_potentially_unmanaged_disk(disk_partition: &str) {
+// Step 1: is this disk already managed within ?
+
+// Step 2: Mount under /mnt/u/sd*
+  const UNMANAGED_DIR: &'static str = "/mnt/u";
+  if ! tokio::fs::try_exists(UNMANAGED_DIR).await.unwrap_or(false) { // if the dir does not exist, create it
+    dump_error!(
+      tokio::process::Command::new("sudo")
+        .args(&["-n", "mkdir", "-p", UNMANAGED_DIR]) TODO work here!
+        .status()
+        .await
+    );
+  }
+}
+
 
 // Maps intel / sysfs brightness ranges to a list of acceptable
 // ddcutil brightness ranges.
