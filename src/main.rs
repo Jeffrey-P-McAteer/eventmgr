@@ -830,18 +830,133 @@ async fn do_simple_client_arg2(arg1: &str, arg2: &str) {
 }
 
 async fn mount_potentially_unmanaged_disk(disk_partition: &str) {
-// Step 1: is this disk already managed within ?
+  use rsblkid::probe::Probe;
+  use rsblkid::partition::FileSystem;
 
-// Step 2: Mount under /mnt/u/sd*
   const UNMANAGED_DIR: &'static str = "/mnt/u";
-  if ! tokio::fs::try_exists(UNMANAGED_DIR).await.unwrap_or(false) { // if the dir does not exist, create it
-    dump_error!(
-      tokio::process::Command::new("sudo")
-        .args(&["-n", "mkdir", "-p", UNMANAGED_DIR]) TODO work here!
-        .status()
-        .await
-    );
+
+  // Step 1: is this disk already managed within mount_disks()
+  // Note that we must resolve both the partition device and the disk_block_device
+  // in case they are symlinks. (returning on any fs-level errors)
+  // If so, exit early as we do not want to duplicate responsibility.
+  let disk_partition_path = format!("/dev/{}", disk_partition);
+
+  // Now that we've resolved the path under /dev/sdAN, check the change to see if it was added or removed from the system
+  let disk_was_added = tokio::fs::try_exists(&disk_partition_path).await.unwrap_or(false);
+
+  let disk_partition_name = std::path::Path::new(disk_partition).file_name().map(|v| v.to_string_lossy().to_string()).unwrap_or_else(|| disk_partition.to_string());
+  let mount_folder = format!("{}/{}", UNMANAGED_DIR, disk_partition_name);
+
+
+  if disk_was_added {
+    // Lookup partition data + mount
+    let resolved_disk_p = dump_error_and_ret!(tokio::fs::canonicalize(&disk_partition_path).await);
+    for (disk_block_device, disk_mount_items) in MOUNT_DISKS.entries() {
+      let resolved_bd = dump_error_and_cont!(tokio::fs::canonicalize(disk_block_device).await);
+      if resolved_disk_p == resolved_bd {
+        eprintln!("The disk {} is managed (as {}), we are not placing it under {}", disk_partition, disk_block_device, UNMANAGED_DIR);
+        return; // do not mess w/ managed disks!
+      }
+    }
+
+    // Step 2: Mount under /mnt/u/sd*
+    if ! tokio::fs::try_exists(UNMANAGED_DIR).await.unwrap_or(false) { // if the dir does not exist, create it
+      dump_error_and_ret!(
+        tokio::process::Command::new("sudo")
+          .args(&["-n", "mkdir", "-p", UNMANAGED_DIR])
+          .status()
+          .await
+      );
+    }
+
+    let mut mount_options: Option<String> = None;
+    {
+      let mut fs_type_probe = dump_error_and_ret!( rsblkid::probe::Probe::builder()
+                            .scan_device(&disk_partition_path)
+                            .scan_device_superblocks(true)
+                            .build() );
+
+      let scan_result = fs_type_probe.find_device_properties();
+
+      let mut fs_type: Option<rsblkid::partition::FileSystem> = None;
+      for tag in fs_type_probe.iter_device_properties() {
+        match tag {
+          rsblkid::device::Tag::Type(fs) => {
+              fs_type = Some(fs);
+          }
+          _ => {}
+        }
+      }
+
+      match fs_type {
+        Some(fs_type) => {
+          mount_options = match fs_type {
+            FileSystem::Ext2 | FileSystem::Ext3 | FileSystem::Ext4 | FileSystem::Ext4Dev |
+            FileSystem::BTRFS | FileSystem::XFS => {
+              Some("rw,noatime,sync".to_string())
+            }
+            FileSystem::Bcache | // no -o sync support
+            FileSystem::BcacheFs | FileSystem::ZFS => {
+              Some("rw,noatime".to_string())
+            },
+            FileSystem::ExFAT | FileSystem::VFAT => {
+              Some("rw,noatime,sync,uid=1000,gid=1000,umask=022".to_string())
+            },
+            FileSystem::NTFS | FileSystem::ReFs => { // no -o sync support
+              Some("rw,noatime,uid=1000,gid=1000,umask=022".to_string())
+            }
+            ref unhandled => {
+              eprintln!("WARNING: We must add UID mappint for fs_type={}", fs_type);
+              return;
+            }
+          };
+        }
+        None => {
+          eprintln!("WARNING: cannot determine FS type of {}", disk_partition);
+        }
+      }
+
+      // Now drop our probe, it is unsafe to hold across .await points b/c OS thread may change
+      // std::mem::drop(fs_type_probe); // Scoping change was cleaner
+    }
+
+    // Have all our important data, mount!
+    if let Some(mount_options) = mount_options {
+        if ! tokio::fs::try_exists(&mount_folder).await.unwrap_or(false) { // if the dir does not exist, create it
+        dump_error_and_ret!(
+          tokio::process::Command::new("sudo")
+            .args(&["-n", "mkdir", "-p", &mount_folder])
+            .status()
+            .await
+        );
+      }
+      dump_error!(
+        tokio::process::Command::new("sudo")
+          .args(&["-n", "mount", "-o", &mount_options, &disk_partition_path, &mount_folder])
+          .status()
+          .await
+      );
+    }
   }
+  else {
+    // Un-mount the device if it looks like we managed it
+    if tokio::fs::try_exists(&mount_folder).await.unwrap_or(false) {
+      dump_error!(
+        tokio::process::Command::new("sudo")
+          .args(&["-n", "umount", "--lazy", &mount_folder])
+          .status()
+          .await
+      );
+      dump_error!(
+        tokio::process::Command::new("sudo")
+          .args(&["-n", "rmdir", &mount_folder])
+          .status()
+          .await
+      );
+    }
+  }
+
+
 }
 
 

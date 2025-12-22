@@ -40,6 +40,8 @@ cpu-time = "*"
 
 serde_json = "*"
 
+rsblkid = "0.4"
+
 
 
 [profile.release]
