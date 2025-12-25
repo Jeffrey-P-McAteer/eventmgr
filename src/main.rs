@@ -2348,16 +2348,17 @@ async fn partial_resume_paused_procs() {
 // Replacement for the pause_proc and unpause_proc handlers; this is VASTLY more cpu-efficient,
 // plus the process never really is stopped, making network traffic much smoother.
 async fn set_nspawn_container_cpu_limit(container_name: &str, cpu_limit: &str) {
-  dump_error!(
-    tokio::process::Command::new("sudo")
-      .args(&["-n", "systemctl", "set-property",
-                        format!("machine-{}.scope", container_name).as_str(),
-                        format!("CPUQuota={}", cpu_limit).as_str()
-      ])
-      .status()
-      .await
-  );
-  notify(format!("set {} CPU to {}", container_name, cpu_limit).as_str()).await;
+  // TODO determine container names in a better manner!
+  // dump_error!(
+  //   tokio::process::Command::new("sudo")
+  //     .args(&["-n", "systemctl", "set-property",
+  //                       format!("machine-{}.scope", container_name).as_str(),
+  //                       format!("CPUQuota={}", cpu_limit).as_str()
+  //     ])
+  //     .status()
+  //     .await
+  // );
+  // notify(format!("set {} CPU to {}", container_name, cpu_limit).as_str()).await;
 }
 
 
