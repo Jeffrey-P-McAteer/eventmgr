@@ -835,6 +835,11 @@ async fn mount_potentially_unmanaged_disk(disk_partition: &str) {
 
   const UNMANAGED_DIR: &'static str = "/mnt/u";
 
+  // Do NOT try to manage network-boot-device partitions!
+  if disk_partition.starts_with("nbd") {
+    return;
+  }
+
   // Step 1: is this disk already managed within mount_disks()
   // Note that we must resolve both the partition device and the disk_block_device
   // in case they are symlinks. (returning on any fs-level errors)
