@@ -66,7 +66,7 @@ async fn eventmgr() {
     PersistentAsyncTask::new("poll_pcore_controls",              ||{ tokio::task::spawn(instrument_async("poll_pcore_controls", poll_pcore_controls()) ) }),
     PersistentAsyncTask::new("mount_disks",                      ||{ tokio::task::spawn(instrument_async("mount_disks", mount_disks()) ) }),
     PersistentAsyncTask::new("mount_net_shares",                 ||{ tokio::task::spawn(instrument_async("mount_net_shares", mount_net_shares()) ) }),
-    PersistentAsyncTask::new("bump_cpu_for_performance_procs",   ||{ tokio::task::spawn(instrument_async("bump_cpu_for_performance_procs", bump_cpu_for_performance_procs()) ) }),
+    //PersistentAsyncTask::new("bump_cpu_for_performance_procs",   ||{ tokio::task::spawn(instrument_async("bump_cpu_for_performance_procs", bump_cpu_for_performance_procs()) ) }),
     //PersistentAsyncTask::new("partial_resume_paused_procs",      ||{ tokio::task::spawn(instrument_async("partial_resume_paused_procs", partial_resume_paused_procs()) ) }),
     PersistentAsyncTask::new("mount_swap_files",                 ||{ tokio::task::spawn(instrument_async("mount_swap_files", mount_swap_files()) ) }),
     PersistentAsyncTask::new("turn_off_misc_lights",             ||{ tokio::task::spawn(instrument_async("turn_off_misc_lights", turn_off_misc_lights()) ) }),
@@ -609,7 +609,7 @@ async fn poll_device_audio_playback() {
     std::env::set_var("XDG_RUNTIME_DIR", "/run/user/1000");
   }
 
-  let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(1800));
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(3200));
   interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
   let mut powersave_interval = tokio::time::interval(tokio::time::Duration::from_millis(12200));
   powersave_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
