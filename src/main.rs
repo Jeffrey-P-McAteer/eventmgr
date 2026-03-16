@@ -1443,7 +1443,13 @@ static MOUNT_DISKS: phf::Map<&'static str, &[(&'static str, &'static str)] > = p
       ("/mnt/ai-models.has-been-ntfsfixed", "sleep 0.1 ; sudo ntfsfix /dev/disk/by-label/ai-models || true"),
       ("/mnt/ai-models", "defaults,rw,uid=1000,gid=1000"),
       // sudo ntfsfix /dev/disk/by-label/ai-models
-    ]
+    ],
+
+  // We add our windows partitions so they are not auto-mounted -_-
+  "/dev/disk/by-partuuid/9d20461a-be88-41c8-a822-23c9a73835dc" => &[],
+  "/dev/disk/by-partuuid/9e58b8d8-21fd-4e9d-9864-3120d9e071c4" => &[],
+  "/dev/disk/by-partuuid/c437cdd7-3d78-471c-b474-fb21c3e6b14b" => &[],
+  "/dev/disk/by-partuuid/e34240b3-40de-4b70-bf35-67358cc3f342" => &[],
 
 };
 
