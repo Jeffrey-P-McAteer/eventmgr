@@ -1243,6 +1243,25 @@ async fn poll_downloads() {
 
         }
       }
+      else if fname.to_lowercase().ends_with(".bz2") && dump_error_and_ret!( entry.path().metadata() ).len() > 2 {
+        // bzip2 -dk {}
+        let unzip_path = std::path::Path::new("/j/downloads").join( fname.replace(".bz2", "") );
+        if !unzip_path.exists() {
+
+          notify(format!("Un-bz2-ing {:?} to {:?}", entry.path(), unzip_path).as_str()).await;
+
+          dump_error_and_ret!(
+            tokio::process::Command::new("bzip2")
+              .args(&["-dk", entry.path().to_string_lossy().borrow() ])
+              .status()
+              .await
+          );
+
+          extracted_something = true;
+          unzipped_files.insert(fname_string);
+        }
+      }
+
 
       if extracted_something {
         /* todo re-design w/o touching _all_ files, just those that share a zip prefix name or something
