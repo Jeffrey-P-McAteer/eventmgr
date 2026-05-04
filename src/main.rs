@@ -75,6 +75,7 @@ async fn eventmgr() {
     PersistentAsyncTask::new("run_package_downloader",           ||{ tokio::task::spawn(instrument_async("run_package_downloader", run_package_downloader()) ) }),
     PersistentAsyncTask::new("log_runtime_stats",                ||{ tokio::task::spawn(instrument_async("log_runtime_stats", log_runtime_stats()) ) }),
     PersistentAsyncTask::new("handle_lid_states",                ||{ tokio::task::spawn(instrument_async("handle_lid_states", handle_lid_states()) ) }),
+    PersistentAsyncTask::new("autohandle_hung_procs",            ||{ tokio::task::spawn(instrument_async("autohandle_hung_procs", autohandle_hung_procs()) ) }),
   ];
 
   // Initialize any early-memory stuff
@@ -1697,71 +1698,71 @@ async fn mount_net_shares() {
           continue;
         }
 
-        let mut can_ping_share_host: Option<bool> = None;
+        let mut dns_ip_results: Vec<String> = Vec::with_capacity(4);
+        //let mut can_dns_share_host: Option<bool> = None;
         for (disk_mount_path, disk_mount_cmd) in disk_mount_items.iter() {
           if ! is_mounted(&info, disk_mount_path).await {
             // Can we ping share_host?
-            if can_ping_share_host.is_none() {
-              let dns_results = tokio::time::timeout(
-                std::time::Duration::from_millis(12500),
-                tokio::net::lookup_host(share_host)
-              ).await;
+
+            let dns_results = tokio::time::timeout(
+              std::time::Duration::from_millis(12500),
+              tokio::net::lookup_host(share_host)
+            ).await;
+            if let Ok(dns_results) = dns_results {
               if let Ok(dns_results) = dns_results {
-                if let Ok(dns_results) = dns_results {
-                  let mut num_ips = 0;
-                  for dns_result in dns_results {
-                    println!("dns_result = {:?}", dns_result.ip() );
-                    num_ips += 1;
-                  }
-                  if num_ips > 0 {
-                    can_ping_share_host = Some(true); // got results
-                    host_missed_pings.insert(share_host, 0); // clear missed pings
-                  }
-                  else {
-                    println!("Got no data (inner) from tokio::net::lookup_host({})", &share_host);
-                    can_ping_share_host = Some(false); // no data!
-                    // Count as an error
-                    let ec = host_mount_err_count.get(share_host).unwrap_or(&0);
-                    host_mount_err_count.insert(share_host, ec + 1);
-                  }
+                for dns_result in dns_results {
+                  dns_ip_results.push(format!("{}", dns_result.ip()));
+                }
+                if dns_ip_results.len() > 0 {
+                  host_missed_pings.insert(share_host, 0); // clear missed pings
                 }
                 else {
-                  //println!("Got no data from tokio::net::lookup_host({})", &share_host);
-                  can_ping_share_host = Some(false); // no data!
-
+                  println!("Got no data (inner) from tokio::net::lookup_host({})", &share_host);
                   // Count as an error
                   let ec = host_mount_err_count.get(share_host).unwrap_or(&0);
                   host_mount_err_count.insert(share_host, ec + 1);
-
-                  // We try something old-school and slow to try and fix the situation;
-                  let systemd_resolved_endpt = std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 53)), 53);
-
-                  let config = rsdns::clients::ClientConfig::with_nameserver(systemd_resolved_endpt);
-
-                  if let Ok(mut client) = rsdns::clients::std::Client::new(config) {
-                    if let Ok(rrset) = client.query_rrset::<rsdns::records::data::A>(share_host, rsdns::records::Class::IN) {
-                      for ip_res in rrset.rdata {
-                        //println!("DNS A rrset.ip_res = {:?}", ip_res);
-                        can_ping_share_host = Some(true); // Got at least one result!
-                      }
-                    }
-                    if let Ok(rrset) = client.query_rrset::<rsdns::records::data::Aaaa>(share_host, rsdns::records::Class::IN) {
-                      for ip_res in rrset.rdata {
-                        //println!("DNS AAAA rrset.ip_res = {:?}", ip_res);
-                        can_ping_share_host = Some(true); // Got at least one result!
-                      }
-                    }
-                  }
-
                 }
               }
               else {
-                println!("Timed out while trying to get tokio::net::lookup_host({})", &share_host);
-                can_ping_share_host = Some(false); // timeout!
+                // Count as an error
+                let ec = host_mount_err_count.get(share_host).unwrap_or(&0);
+                host_mount_err_count.insert(share_host, ec + 1);
+
+                // We try something old-school and slow to try and fix the situation;
+                let systemd_resolved_endpt = std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 53)), 53);
+
+                let config = rsdns::clients::ClientConfig::with_nameserver(systemd_resolved_endpt);
+
+                if let Ok(mut client) = rsdns::clients::std::Client::new(config) {
+                  if let Ok(rrset) = client.query_rrset::<rsdns::records::data::A>(share_host, rsdns::records::Class::IN) {
+                    for ip_res in rrset.rdata {
+                      //println!("DNS A rrset.ip_res = {:?}", ip_res);
+                      dns_ip_results.push(format!("{}", ip_res.address ));
+                    }
+                  }
+                  if let Ok(rrset) = client.query_rrset::<rsdns::records::data::Aaaa>(share_host, rsdns::records::Class::IN) {
+                    for ip_res in rrset.rdata {
+                      //println!("DNS AAAA rrset.ip_res = {:?}", ip_res);
+                      dns_ip_results.push(format!("{}", ip_res.address ));
+                    }
+                  }
+                }
+
               }
             }
-            if let Some(can_ping_share_host) = can_ping_share_host {
-              if can_ping_share_host {
+            else {
+              println!("Timed out while trying to get tokio::net::lookup_host({})", &share_host);
+            }
+
+
+            if dns_ip_results.len() > 0 {
+              let mut can_ping_host = false;
+
+              // Attempt to ping any in dns_ip_results
+              println!("# TODO: Ping all in {:?}", &dns_ip_results);
+
+
+              if can_ping_host {
                 // Not mounted but can ping, mount!
 
                 println!("We can ping {} but have not yet mounted {}, mounting...", share_host, disk_mount_path);
@@ -1800,7 +1801,7 @@ async fn mount_net_shares() {
           }
           else {
             // We are mounted, can we ping? If not then un-mount
-            if can_ping_share_host.is_none() {
+            if dns_ip_results.len() <= 0 {
               let dns_results = tokio::time::timeout(
                 std::time::Duration::from_millis(4500),
                 tokio::net::lookup_host(share_host)
@@ -2727,6 +2728,33 @@ async fn handle_lid_states() {
     }
   }
 }
+
+
+static HANDLE_MAP_HUNG_PROCS: phf::Map<&'static str, (f32, &[&'static str]) > = phf::phf_map! {
+  // awww sometimes eats 100% CPU and does nothing, we can kill + re-spawn it safely in this condition
+  "awww-daemon" => (50.0,
+    &[
+      "pkill aww-daemon",
+      "swaymsg exec /j/bins/start-wallpaper-daemon.sh",
+    ]
+  ),
+};
+
+
+async fn autohandle_hung_procs() {
+  let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(8));
+  interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
+  loop {
+    interval.tick().await;
+
+    for (proc_name, resolution_cmds) in &HANDLE_MAP_HUNG_PROCS {
+
+    }
+
+  }
+}
+
 
 async fn on_lid_close() {
   LID_IS_CLOSED.store(false, std::sync::atomic::Ordering::SeqCst);

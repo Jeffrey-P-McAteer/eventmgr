@@ -684,6 +684,7 @@ dependencies = [
  "futures",
  "glob",
  "lazy_static",
+ "libc",
  "libpulse-binding",
  "libpulse-simple-binding",
  "measure_time",
