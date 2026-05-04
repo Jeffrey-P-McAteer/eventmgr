@@ -29,6 +29,14 @@ fn main() {
     client::event_client(&args);
   }
   else {
+    // Ensure permissions as as we expect
+    if std::env::var("CAP_FIXED").is_err() {
+        if !can_create_icmp_socket() {
+            fix_capability_and_restart();
+        }
+    }
+
+    // Main runtime
     let rt = tokio::runtime::Builder::new_multi_thread()
       .enable_all()
       .worker_threads(2)
@@ -1699,104 +1707,108 @@ async fn mount_net_shares() {
         }
 
         let mut dns_ip_results: Vec<String> = Vec::with_capacity(4);
-        //let mut can_dns_share_host: Option<bool> = None;
-        for (disk_mount_path, disk_mount_cmd) in disk_mount_items.iter() {
-          if ! is_mounted(&info, disk_mount_path).await {
-            // Can we ping share_host?
 
-            let dns_results = tokio::time::timeout(
-              std::time::Duration::from_millis(12500),
-              tokio::net::lookup_host(share_host)
-            ).await;
-            if let Ok(dns_results) = dns_results {
-              if let Ok(dns_results) = dns_results {
-                for dns_result in dns_results {
-                  dns_ip_results.push(format!("{}", dns_result.ip()));
-                }
-                if dns_ip_results.len() > 0 {
-                  host_missed_pings.insert(share_host, 0); // clear missed pings
-                }
-                else {
-                  println!("Got no data (inner) from tokio::net::lookup_host({})", &share_host);
-                  // Count as an error
-                  let ec = host_mount_err_count.get(share_host).unwrap_or(&0);
-                  host_mount_err_count.insert(share_host, ec + 1);
-                }
-              }
-              else {
-                // Count as an error
-                let ec = host_mount_err_count.get(share_host).unwrap_or(&0);
-                host_mount_err_count.insert(share_host, ec + 1);
+        // Can we ping share_host?
 
-                // We try something old-school and slow to try and fix the situation;
-                let systemd_resolved_endpt = std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 53)), 53);
-
-                let config = rsdns::clients::ClientConfig::with_nameserver(systemd_resolved_endpt);
-
-                if let Ok(mut client) = rsdns::clients::std::Client::new(config) {
-                  if let Ok(rrset) = client.query_rrset::<rsdns::records::data::A>(share_host, rsdns::records::Class::IN) {
-                    for ip_res in rrset.rdata {
-                      //println!("DNS A rrset.ip_res = {:?}", ip_res);
-                      dns_ip_results.push(format!("{}", ip_res.address ));
-                    }
-                  }
-                  if let Ok(rrset) = client.query_rrset::<rsdns::records::data::Aaaa>(share_host, rsdns::records::Class::IN) {
-                    for ip_res in rrset.rdata {
-                      //println!("DNS AAAA rrset.ip_res = {:?}", ip_res);
-                      dns_ip_results.push(format!("{}", ip_res.address ));
-                    }
-                  }
-                }
-
-              }
+        let dns_results = tokio::time::timeout(
+          std::time::Duration::from_millis(12500),
+          tokio::net::lookup_host(share_host)
+        ).await;
+        if let Ok(dns_results) = dns_results {
+          if let Ok(dns_results) = dns_results {
+            for dns_result in dns_results {
+              dns_ip_results.push(format!("{}", dns_result.ip()));
+            }
+            if dns_ip_results.len() > 0 {
+              host_missed_pings.insert(share_host, 0); // clear missed pings
             }
             else {
-              println!("Timed out while trying to get tokio::net::lookup_host({})", &share_host);
+              println!("Got no data (inner) from tokio::net::lookup_host({})", &share_host);
+              // Count as an error
+              let ec = host_mount_err_count.get(share_host).unwrap_or(&0);
+              host_mount_err_count.insert(share_host, ec + 1);
+            }
+          }
+          else {
+            // Count as an error
+            let ec = host_mount_err_count.get(share_host).unwrap_or(&0);
+            host_mount_err_count.insert(share_host, ec + 1);
+
+            // We try something old-school and slow to try and fix the situation;
+            let systemd_resolved_endpt = std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 53)), 53);
+
+            let config = rsdns::clients::ClientConfig::with_nameserver(systemd_resolved_endpt);
+
+            if let Ok(mut client) = rsdns::clients::std::Client::new(config) {
+              if let Ok(rrset) = client.query_rrset::<rsdns::records::data::A>(share_host, rsdns::records::Class::IN) {
+                for ip_res in rrset.rdata {
+                  //println!("DNS A rrset.ip_res = {:?}", ip_res);
+                  dns_ip_results.push(format!("{}", ip_res.address ));
+                }
+              }
+              if let Ok(rrset) = client.query_rrset::<rsdns::records::data::Aaaa>(share_host, rsdns::records::Class::IN) {
+                for ip_res in rrset.rdata {
+                  //println!("DNS AAAA rrset.ip_res = {:?}", ip_res);
+                  dns_ip_results.push(format!("{}", ip_res.address ));
+                }
+              }
             }
 
+          }
+        }
+        else {
+          println!("Timed out while trying to get tokio::net::lookup_host({})", &share_host);
+        }
 
-            if dns_ip_results.len() > 0 {
-              let mut can_ping_host = false;
+        // De-duplicate if we got same IP from 2+ sources
+        let dns_ip_results = dedup_unordered(dns_ip_results);
 
-              // Attempt to ping any in dns_ip_results
-              println!("# TODO: Ping all in {:?}", &dns_ip_results);
+        let mut can_ping_host = false;
 
+        if dns_ip_results.len() > 0 {
+          // Attempt to ping any in dns_ip_results
+          println!("# TODO: Ping all in {:?}", &dns_ip_results);
+          let pingable_ips = count_reachable(&dns_ip_results).await;
+          can_ping_host = pingable_ips > 0;
+        }
 
-              if can_ping_host {
-                // Not mounted but can ping, mount!
+        for (disk_mount_path, disk_mount_cmd) in disk_mount_items.iter() {
+          if ! is_mounted(&info, disk_mount_path).await {
 
-                println!("We can ping {} but have not yet mounted {}, mounting...", share_host, disk_mount_path);
+            if can_ping_host {
+              // Not mounted but can ping, mount!
 
-                dump_error!(
-                  tokio::process::Command::new("sudo")
-                    .args(&["-n", "mkdir", "-p", disk_mount_path])
-                    .status()
-                    .await
-                );
+              println!("We can ping {} but have not yet mounted {}, mounting...", share_host, disk_mount_path);
 
-                dump_error!(
-                  tokio::process::Command::new("sudo")
-                    .args(&["-n", "chown", "jeffrey:jeffrey", disk_mount_path])
-                    .status()
-                    .await
-                );
+              dump_error!(
+                tokio::process::Command::new("sudo")
+                  .args(&["-n", "mkdir", "-p", disk_mount_path])
+                  .status()
+                  .await
+              );
 
-                let mount_r = tokio::process::Command::new("sudo")
-                    .envs(&network_subproc_env)
-                    .args(&["--preserve-env", "-n", "sh", "-c", disk_mount_cmd])
-                    .status()
-                    .await;
-                if let Err(e) = mount_r {
-                  eprintln!("{}", e);
-                  let ec = host_mount_err_count.get(share_host).unwrap_or(&0);
-                  host_mount_err_count.insert(share_host, ec + 1);
-                }
-                else {
-                  // Mount success, clear errors!
-                  host_mount_err_count.insert(share_host, 0);
-                }
+              dump_error!(
+                tokio::process::Command::new("sudo")
+                  .args(&["-n", "chown", "jeffrey:jeffrey", disk_mount_path])
+                  .status()
+                  .await
+              );
 
+              let mount_r = tokio::process::Command::new("sudo")
+                  .envs(&network_subproc_env)
+                  .args(&["--preserve-env", "-n", "sh", "-c", disk_mount_cmd])
+                  .status()
+                  .await;
+              if let Err(e) = mount_r {
+                eprintln!("{}", e);
+                let ec = host_mount_err_count.get(share_host).unwrap_or(&0);
+                host_mount_err_count.insert(share_host, ec + 1);
               }
+              else {
+                // Mount success, clear errors!
+                host_mount_err_count.insert(share_host, 0);
+              }
+
             }
           }
           else {
@@ -2835,5 +2847,238 @@ async fn on_lid_open() {
 
 
 
+/////////////////////// BEGIN PING IMPL
+
+
+fn can_create_icmp_socket() -> bool {
+  use futures::stream::{FuturesUnordered, StreamExt};
+  use rand::random;
+  use std::env;
+  use std::net::{IpAddr, ToSocketAddrs};
+  use std::process::{Command, exit};
+  use std::time::Duration;
+  use tokio::task;
+
+    unsafe {
+        let fd = libc::socket(libc::AF_INET, libc::SOCK_RAW, libc::IPPROTO_ICMP);
+        if fd >= 0 {
+            libc::close(fd);
+            true
+        } else {
+            false
+        }
+    }
+}
+
+fn fix_capability_and_restart() -> ! {
+  use futures::stream::{FuturesUnordered, StreamExt};
+  use rand::random;
+  use std::env;
+  use std::net::{IpAddr, ToSocketAddrs};
+  use std::process::{Command, exit};
+  use std::time::Duration;
+  use tokio::task;
+
+    let exe = env::current_exe().expect("failed to get current exe");
+
+    println!("[init] missing CAP_NET_RAW, attempting fix...");
+
+    let status = Command::new("sudo")
+        .args(["setcap", "cap_net_raw+ep", exe.to_str().unwrap()])
+        .status()
+        .expect("failed to execute setcap");
+
+    if !status.success() {
+        eprintln!("setcap failed");
+        exit(1);
+    }
+
+    println!("[init] restarting with capabilities...");
+
+    Command::new(exe)
+        .env("CAP_FIXED", "1")
+        .spawn()
+        .expect("restart failed");
+
+    exit(0);
+}
+
+fn checksum(data: &[u8]) -> u16 {
+  use futures::stream::{FuturesUnordered, StreamExt};
+  use rand::random;
+  use std::env;
+  use std::net::{IpAddr, ToSocketAddrs};
+  use std::process::{Command, exit};
+  use std::time::Duration;
+  use tokio::task;
+
+    let mut sum = 0u32;
+    let mut chunks = data.chunks_exact(2);
+
+    for chunk in &mut chunks {
+        let val = u16::from_be_bytes([chunk[0], chunk[1]]) as u32;
+        sum += val;
+    }
+
+    if let Some(&byte) = chunks.remainder().get(0) {
+        sum += (byte as u32) << 8;
+    }
+
+    while (sum >> 16) != 0 {
+        sum = (sum & 0xFFFF) + (sum >> 16);
+    }
+
+    !(sum as u16)
+}
+
+fn build_icmp_packet(seq: u16, id: u16) -> Vec<u8> {
+    let mut packet = vec![0u8; 8 + 8]; // header + payload
+
+    packet[0] = 8; // Echo request
+    packet[1] = 0; // code
+
+    packet[4..6].copy_from_slice(&id.to_be_bytes());
+    packet[6..8].copy_from_slice(&seq.to_be_bytes());
+
+    let csum = checksum(&packet);
+    packet[2..4].copy_from_slice(&csum.to_be_bytes());
+
+    packet
+}
+
+async fn ping_ip(ip: String) -> bool {
+
+  use futures::stream::{FuturesUnordered, StreamExt};
+  use rand::random;
+  use std::env;
+  use std::net::{IpAddr, ToSocketAddrs};
+  use std::process::{Command, exit};
+  use std::time::Duration;
+  use tokio::task;
+
+    task::spawn_blocking(move || {
+        let addr = match ip.parse::<IpAddr>() {
+            Ok(a) => a,
+            Err(_) => return false,
+        };
+
+        unsafe {
+            let (domain, proto) = match addr {
+                IpAddr::V4(_) => (libc::AF_INET, libc::IPPROTO_ICMP),
+                IpAddr::V6(_) => (libc::AF_INET6, libc::IPPROTO_ICMPV6),
+            };
+
+            let fd = libc::socket(domain, libc::SOCK_RAW, proto);
+            if fd < 0 {
+                return false;
+            }
+
+            // timeout
+            let tv = libc::timeval {
+                tv_sec: 2,
+                tv_usec: 0,
+            };
+            libc::setsockopt(
+                fd,
+                libc::SOL_SOCKET,
+                libc::SO_RCVTIMEO,
+                &tv as *const _ as *const _,
+                std::mem::size_of::<libc::timeval>() as u32,
+            );
+
+            let packet = build_icmp_packet(random(), random());
+
+            let ret = match addr {
+                IpAddr::V4(ipv4) => {
+                    let sockaddr = libc::sockaddr_in {
+                        sin_family: libc::AF_INET as u16,
+                        sin_port: 0,
+                        sin_addr: libc::in_addr {
+                            s_addr: u32::from_ne_bytes(ipv4.octets()).to_be(),
+                        },
+                        sin_zero: [0; 8],
+                    };
+
+                    libc::sendto(
+                        fd,
+                        packet.as_ptr() as *const _,
+                        packet.len(),
+                        0,
+                        &sockaddr as *const _ as *const _,
+                        std::mem::size_of::<libc::sockaddr_in>() as u32,
+                    )
+                }
+                IpAddr::V6(ipv6) => {
+                    let sockaddr = libc::sockaddr_in6 {
+                        sin6_family: libc::AF_INET6 as u16,
+                        sin6_port: 0,
+                        sin6_flowinfo: 0,
+                        sin6_addr: libc::in6_addr {
+                            s6_addr: ipv6.octets(),
+                        },
+                        sin6_scope_id: 0,
+                    };
+
+                    libc::sendto(
+                        fd,
+                        packet.as_ptr() as *const _,
+                        packet.len(),
+                        0,
+                        &sockaddr as *const _ as *const _,
+                        std::mem::size_of::<libc::sockaddr_in6>() as u32,
+                    )
+                }
+            };
+
+            if ret < 0 {
+                libc::close(fd);
+                return false;
+            }
+
+            let mut buf = [0u8; 1024];
+
+            let recv = libc::recv(fd, buf.as_mut_ptr() as *mut _, buf.len(), 0);
+
+            libc::close(fd);
+
+            recv > 0
+        }
+    })
+    .await
+    .unwrap_or(false)
+}
+
+async fn count_reachable(ips: &Vec<String>) -> usize {
+  use futures::stream::{FuturesUnordered, StreamExt};
+  use rand::random;
+  use std::env;
+  use std::net::{IpAddr, ToSocketAddrs};
+  use std::process::{Command, exit};
+  use std::time::Duration;
+  use tokio::task;
+
+    let mut tasks = FuturesUnordered::new();
+
+    for ip in ips {
+        tasks.push(tokio::spawn(ping_ip(ip.to_string())));
+    }
+
+    let mut count = 0;
+
+    while let Some(Ok(ok)) = tasks.next().await {
+        if ok {
+            count += 1;
+        }
+    }
+
+    count
+}
+
+fn dedup_unordered(v: Vec<String>) -> Vec<String> {
+    use std::collections::HashSet;
+    HashSet::<_>::from_iter(v).into_iter().collect()
+}
+
+/////////////////////// END PING IMPL
 
 
