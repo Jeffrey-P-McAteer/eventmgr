@@ -100,6 +100,8 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
 
 
   if args.contains(&"do-lock".to_string()) {
+    // These are issued manually or via /j/.config/swayidle/config
+
     // If we aren't supposed to lock, don't.
     if std::path::Path::new("/tmp/no-lock").exists() {
       std::thread::sleep(std::time::Duration::from_millis(30 * 1000));
@@ -109,6 +111,14 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
     if std::path::Path::new("/tmp/eventmgr-audio-is-playing").exists() {
       std::thread::sleep(std::time::Duration::from_millis(30 * 1000));
       return true;
+    }
+
+    let is_idle_lock_request = args.contains(&"for-idle".to_string());
+    if is_idle_lock_request {
+      // Ignore idle locks IF we are at home.
+      if we_are_home() {
+        return true; // No locking when at home and for-idle passed!
+      }
     }
 
 
@@ -163,6 +173,27 @@ pub fn run_local_event_client(args: &Vec<String>) -> bool {
 
   return false;
 }
+
+pub fn we_are_home() -> bool {
+  // We check /proc/net/arp if it contains the OPNSense machine, c8:ff:bf:0d:7d:40
+  mac_present("c8:ff:bf:0d:7d:40")
+}
+
+// Does not give us ALL macs, just ones we have talked to recently.
+pub fn mac_present(target_mac: &str) -> bool {
+    let arp = match std::fs::read_to_string("/proc/net/arp") {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+
+    let target = target_mac.to_ascii_lowercase();
+
+    arp.lines()
+        .skip(1) // skip header
+        .filter_map(|line| line.split_whitespace().nth(3))
+        .any(|mac| mac.eq_ignore_ascii_case(&target))
+}
+
 
 pub fn install_self() {
   // Assume we are running as root + write directly to service file
