@@ -1270,6 +1270,31 @@ async fn poll_downloads() {
           unzipped_files.insert(fname_string);
         }
       }
+      else if fname.to_lowercase().ends_with(".tar.gz") && dump_error_and_ret!( entry.path().metadata() ).len() > 2 {
+        // bzip2 -dk {}
+        let unzip_path = std::path::Path::new("/j/downloads").join( fname.replace(".tar.gz", "") );
+        if !unzip_path.exists() {
+
+          notify(format!("Un-tar-ing {:?} to {:?}", entry.path(), unzip_path).as_str()).await;
+
+          dump_error_and_ret!(
+            tokio::process::Command::new("mkdir")
+              .args(&["-p", unzip_path.to_string_lossy().borrow() ])
+              .status()
+              .await
+          );
+
+          dump_error_and_ret!(
+            tokio::process::Command::new("tar")
+              .args(&["-xzf", entry.path().to_string_lossy().borrow(), "-C", unzip_path.to_string_lossy().borrow() ])
+              .status()
+              .await
+          );
+
+          extracted_something = true;
+          unzipped_files.insert(fname_string);
+        }
+      }
 
 
       if extracted_something {
