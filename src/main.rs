@@ -152,6 +152,15 @@ async fn once_at_startup_nonblocking() {
         .await
     );
   }
+
+  // Turn off USB autosuspend
+  dump_error!(
+    tokio::process::Command::new("sudo")
+      .args(&["-n", "/bin/sh", "-c", "echo -1 | tee /sys/module/usbcore/parameters/autosuspend" ])
+      .status()
+      .await
+  );
+
 }
 
 
