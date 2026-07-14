@@ -528,6 +528,10 @@ static CURRENT_KBD_AUDIO_SEMAPHOR: once_cell::sync::Lazy<std::sync::atomic::Atom
   std::sync::atomic::AtomicU32::new(0)
 );
 
+static MONITOR_IS_IDLE_OFF: once_cell::sync::Lazy<std::sync::atomic::AtomicBool> = once_cell::sync::Lazy::new(||
+  std::sync::atomic::AtomicBool::new(false)
+);
+
 async fn darken_kbd_if_video_focused_and_audio_playing() {
 
   // Override all below logic w/ file
@@ -536,6 +540,12 @@ async fn darken_kbd_if_video_focused_and_audio_playing() {
     return;
   }
   if std::path::Path::new("/tmp/dark-kbd").exists() {
+    set_kbd_light(0).await;
+    return;
+  }
+
+  // Then override with monitor display state data
+  if MONITOR_IS_IDLE_OFF.load(std::sync::atomic::Ordering::SeqCst) {
     set_kbd_light(0).await;
     return;
   }
@@ -833,6 +843,14 @@ async fn do_simple_client_arg1(arg: &str) {
   }
   else if arg == "brightness-down" || arg == "brightness-up" {
     change_monitor_brightness(arg == "brightness-up").await;
+  }
+  else if arg == "monitor-is-off" {
+    MONITOR_IS_IDLE_OFF.store(true, std::sync::atomic::Ordering::SeqCst);
+    darken_kbd_if_video_focused_and_audio_playing().await;
+  }
+  else if arg == "monitor-is-on" {
+    MONITOR_IS_IDLE_OFF.store(false, std::sync::atomic::Ordering::SeqCst);
+    darken_kbd_if_video_focused_and_audio_playing().await;
   }
 
 }
